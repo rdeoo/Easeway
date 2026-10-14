@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "easeway",
-    "slug": "easeway",
+    "name": "easeway-frontend",
+    "slug": "easeway-frontend",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "easeway",
+    "scheme": "easewayfrontend",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"
