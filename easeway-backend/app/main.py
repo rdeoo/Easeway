@@ -1,11 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routers import commutes
+
 #Testing
 from app.services.maps import get_estimated_duration, MapsError
 from fastapi import HTTPException
 
-app = FastAPI()
+
+app = FastAPI(title="Easeway API")
 
 app.add_middleware(
 CORSMiddleware,
@@ -13,6 +16,8 @@ allow_origins=["*"],
 allow_methods=["*"],
 allow_headers=["*"],
 )
+
+app.include_router(commutes.router)
 
 @app.get("/health")
 def health_check():
