@@ -1,0 +1,15 @@
+export const easeway = {
+  canvas: '#0b1017',
+  surface: '#131a24',
+  inset: '#101720',
+  line: '#252e3b',
+  text: '#eaf0f7',
+  muted: '#9eabbc',
+  green: '#7bed8d',
+  greenSoft: '#1d3530',
+  blue: '#638cff',
+  blueSoft: '#1e2b43',
+  violet: '#b29bff',
+  amber: '#f5b94d',
+  red: '#ff8b95',
+};
