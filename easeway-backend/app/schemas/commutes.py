@@ -33,7 +33,7 @@ class CommuteCreate(BaseModel):
             raise ValueError("days_of_week must be a list of integers between 0 and 6.")
         return sorted(set(days))  # Remove duplicates and sort the list
 
-    @model_validator
+    @model_validator(mode="after")
     def origin_differs_from_destination(self):
         if self.origin_address.casefold() == self.destination_address.casefold():
             raise ValueError("Origin and destination must be different.")
