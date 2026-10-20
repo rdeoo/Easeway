@@ -45,3 +45,15 @@ source venv/bin/activate # Windows: source venv/Scripts/activate
 ```bash
 pip install -r requirements.txt
 ```
+
+4. Run the server (locally)
+
+```bash
+uvicorn app.main:app --reload
+```
+
+5. Test docs
+
+```
+Go to http://127.0.0.1:8000/docs
+```
