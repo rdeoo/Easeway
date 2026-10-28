@@ -6,9 +6,13 @@ from unittest.mock import patch
 
 import httpx
 
-with patch.dict(
-    os.environ,
-    {"GOOGLE_MAPS_API_KEY": "test-key", "DATABASE_URL": "sqlite://"},
+with (
+    patch.dict(
+        os.environ,
+        {"GOOGLE_MAPS_API_KEY": "test-key", "DATABASE_URL": "sqlite://"},
+    ),
+    # Local dotenv files must not influence isolated service tests.
+    patch("pydantic_settings.DotEnvSettingsSource.__call__", return_value={}),
 ):
     from app.services.maps import MapsError, ROUTES_URL, get_estimated_duration
 
