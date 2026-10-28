@@ -19,9 +19,11 @@ This directory contains the **FastAPI backend**.
 │   ├── schemas/         # Pydantic schemas
 │   ├── routers/         # API routes
 │   └── services/        # Business logic (e.g. Google Maps wrapper)
-├── requirements.txt
-├── .env.example
-└── README.md
+├── tests/               # Unit tests
+│   └── test_maps.py     # Routes logic testing
+├── requirements.txt     # Pip requirements
+├── .env.example         # Example dotenv file (make a local copy .env.local with actual keys)
+└── README.md            # This file
 ```
 
 ## Getting Started
@@ -56,4 +58,10 @@ uvicorn app.main:app --reload
 
 ```
 Go to http://127.0.0.1:8000/docs
+```
+
+6. Unit tests (Routes wrapper tests does not require a live API key or database):
+
+```bash
+python -m unittest discover -s tests -v
 ```
