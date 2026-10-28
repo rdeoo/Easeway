@@ -24,7 +24,7 @@ This directory contains the **FastAPI backend**.
 │   └── test_maps.py     # Routes logic testing
 ├── requirements.txt     # Pip requirements
 ├── compose.yaml         # Local PostgreSQL service and persistent volume
-├── .env.example         # Example dotenv file (make a local copy .env.local with actual info)
+├── .env.example         # Example dotenv file (make a local copy named .env with actual info)
 └── README.md            # This file
 ```
 
@@ -53,25 +53,25 @@ pip install -r requirements.txt
 4. Configure the local environment
 
 ```bash
-cp .env.example .env.local
+cp .env.example .env
 ```
 
-If you already have `.env.local`, edit it instead of overwriting it. Replace
+If you already have `.env`, edit it instead of overwriting it. Replace
 `YOUR_LOCAL_POSTGRES_PASSWORD` in both settings with the same URL-safe local
 password (letters, numbers, and hyphens work without URL encoding).
 `DATABASE_URL` connects the Python backend on your host to PostgreSQL on port 5432.
-The app also reads `.env.local`; extra Compose-only settings are ignored.
+The app also reads `.env`; extra Compose-only settings are ignored.
 
 The Google Maps placeholder is sufficient to start the backend and use commute
 storage. To use the Maps service, set a real `GOOGLE_MAPS_API_KEY` with the Google
-Routes API enabled. Never commit `.env.local`.
+Routes API enabled. Never commit `.env`.
 
 5. Start PostgreSQL and create the tables
 
 Install Docker with the Compose plugin and ensure Docker is running, then:
 
 ```bash
-docker compose --env-file .env.local up -d --wait db
+docker compose up -d --wait db
 python -m app.core.init_db
 ```
 
@@ -81,7 +81,7 @@ The initialization command is safe to rerun: it creates missing tables without
 deleting existing data. It does not migrate changed schemas; use migrations
 before evolving an existing database or deploying to production.
 
-6. Run the server (from this directory so `.env.local` is found)
+6. Run the server (from this directory so `.env` is found)
 
 ```bash
 uvicorn app.main:app --reload
