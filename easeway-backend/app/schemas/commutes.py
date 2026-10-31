@@ -9,14 +9,14 @@ from pydantic import (
     model_validator,
 )
 
-# TravelMode = Literal["drive", "transit", "walk", "bike"]
+TravelMode = Literal["drive", "transit", "walk", "bike"]
 Address = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
 ]
 
 
 class CommuteCreate(BaseModel):
-    user_id: UUID  # Temporary until we have auth
+    # user_id: UUID
     name: str = Field(max_length=100)
     origin_address: Address
     destination_address: Address
@@ -24,7 +24,7 @@ class CommuteCreate(BaseModel):
     days_of_week: list[int] = []  # 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     arrival_buffer_minutes: int = Field(default=0, ge=0, le=120)
     is_active: bool = Field(default=True)
-    # travel_mode: TravelMode = Field(default="drive")
+    travel_mode: TravelMode = Field(default="drive")
 
     @field_validator("days_of_week")
     @classmethod
@@ -51,6 +51,6 @@ class CommuteRead(BaseModel):
     days_of_week: list[int]
     arrival_buffer_minutes: int | None
     is_active: bool
-    # travel_mode: TravelMode
+    travel_mode: TravelMode
     created_at: datetime
     updated_at: datetime | None

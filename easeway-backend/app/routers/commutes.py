@@ -5,17 +5,17 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.auth import get_current_user_id
 from app.models.commute import Commute
 from app.schemas.commutes import CommuteCreate, CommuteRead
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/commutes", tags=["commutes"])
 
-
 @router.post("", response_model=CommuteRead, status_code=status.HTTP_201_CREATED)
-def create_commute(payload: CommuteCreate, db: Session = Depends(get_db)):
+def create_commute(payload: CommuteCreate, user_id: UUID = Depends(get_current_user_id),db: Session = Depends(get_db)):
     try:
-        commute = Commute(**payload.model_dump())
+        commute = Commute(**payload.model_dump(), user_id=user_id)
         db.add(commute)
         db.commit()
         db.refresh(commute)
@@ -30,7 +30,7 @@ def create_commute(payload: CommuteCreate, db: Session = Depends(get_db)):
 
 @router.get("", response_model=list[CommuteRead])
 def list_commutes(
-    user_id: UUID, db: Session = Depends(get_db), is_active: bool | None = None
+    user_id: UUID = Depends(get_current_user_id), db: Session = Depends(get_db), is_active: bool | None = None
 ):
 
     query = db.query(Commute).filter(Commute.user_id == user_id)

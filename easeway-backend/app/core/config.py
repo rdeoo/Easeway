@@ -4,5 +4,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     GOOGLE_MAPS_API_KEY: str
     DATABASE_URL: str
+    SUPABASE_URL: str
+    SUPABASE_PUBLISHABLE_KEY: str
 
 settings = Settings()
