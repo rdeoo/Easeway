@@ -40,7 +40,7 @@ cd easeway-backend
 2. Create and activate a virtual environment (Python 3.10+)
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate # Windows PowerShell: .venv\Scripts\Activate.ps1
 ```
 
