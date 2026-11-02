@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.exc import SQLAlchemyError
+from fastapi import APIRouter, Depends, HTTPException, status, Response
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -43,3 +43,37 @@ def list_commutes(
         raise HTTPException(
             status_code=502, detail="Could not retrieve commutes from database."
         )
+
+
+@router.delete("/{commute_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_commute(commute_id: int, user_id: UUID, db: Session = Depends(get_db)):
+    commute = (
+        db.query(Commute)
+        .filter(Commute.id == commute_id, Commute.user_id == user_id)
+        .first()
+    )
+    if commute is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Commute not found."
+        )
+    try:
+        db.delete(commute)
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        if getattr(e.orig, "pgcode", None) == "23503":  # foreign key violation
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete commute because it is referenced by other records (trips).",
+            )
+        logger.exception("Error deleting commute due to foreign key constraint")
+        raise HTTPException(
+            status_code=502, detail="Could not delete commute from database."
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Error deleting commute")
+        raise HTTPException(
+            status_code=502, detail="Could not delete commute from database."
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
