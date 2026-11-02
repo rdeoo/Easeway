@@ -126,3 +126,19 @@ database user's password.
 To remove the containers while keeping data, use
 `docker compose down`. Adding `--volumes` permanently deletes
 the local database, so only do that when you intend to reset all local data.
+
+### Setup Test User For Backend Testing
+
+Do this once
+
+1. Copy `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` from `.env.example` into your `.env`
+2. Create a test user on Supabase: Dashboard -> Authentication -> Users -> Add user -> Create new user (Auto Confirm User ticked)
+
+From easeway-backend:
+
+```bash
+python get_token.py signup me@example.com a-test-password   # first time only
+python get_token.py me@example.com a-test-password          # every time after
+```
+
+In /docs, click Authorize and paste the token. The tokens expire so just rerun the script.

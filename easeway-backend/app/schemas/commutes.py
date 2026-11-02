@@ -16,7 +16,7 @@ Address = Annotated[
 
 
 class CommuteCreate(BaseModel):
-    user_id: UUID  # Temporary until we have auth
+    # user_id: UUID
     name: str = Field(max_length=100)
     origin_address: Address
     destination_address: Address
