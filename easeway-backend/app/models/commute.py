@@ -2,6 +2,7 @@ from sqlalchemy import Column, BigInteger, Text, Time, Boolean, DateTime, ARRAY
 from sqlalchemy.dialects.postgresql import UUID
 from app.core.database import Base
 
+
 class Commute(Base):
     __tablename__ = "commutes"
 
