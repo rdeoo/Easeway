@@ -52,6 +52,29 @@ def list_commutes(
             status_code=502, detail="Could not retrieve commutes from database."
         )
 
+@router.get("/{commute_id}", response_model=CommuteRead)
+def get_commute(
+        commute_id: int, db: Session = Depends(get_db)
+):
+    try:
+        commute = (
+            db.query(Commute)
+            .filter(Commute.id == commute_id)
+            .first()
+        )
+
+        if not commute:
+            raise HTTPException(
+                status_code=404,
+                detail="Commute not found"
+            )
+
+        return commute
+    except SQLAlchemyError:
+        logger.exception("Error getting commute with id")
+        raise HTTPException(
+                    status_code=502, detail="Could not retrieve commutes from database."
+                )
 
 @router.patch("/{commute_id}", response_model=CommuteRead)
 def update_commute(
