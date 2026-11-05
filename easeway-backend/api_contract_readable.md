@@ -14,7 +14,7 @@ Creates a new Commute for a User.
   "name": string,
   "origin_address": string,
   "destination_address": string,
-  "arrival_time": datetime,
+  "arrival_time": time,
   "days_of_week": list[int],
   "arrival_buffer_minutes": int,
   "is_active": bool
@@ -34,12 +34,12 @@ Creates a new Commute for a User.
   "name": string,
   "origin_address": string,
   "destination_address": string,
-  "arrival_time": datetime,
+  "arrival_time": time,
   "days_of_week": list[int],
-  "arrival_buffer_minutes": int,
+  "arrival_buffer_minutes": int | null,
   "is_active": bool,
   "created_at": datetime,
-  "updated_at": datetime
+  "updated_at": datetime | null
 }
 ```
 
@@ -99,12 +99,12 @@ Returns a list of Commutes from a User.
 ]
 ```
 
-## GET /commutes `id`
+## GET /commutes/{commute_id}
 
 Returns a Commute with the specified `id`.
 
 - **URL Parameters**
-	- *Required:* `commute_id=[int]`
+	- *Required path parameter:* `commute_id` (integer), e.g. `/commutes/1`
 - **Data Parameters**
 	- None
 - **Headers**
