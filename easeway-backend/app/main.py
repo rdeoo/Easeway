@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import commutes
+from app.routers import commutes, places
 
 app = FastAPI(title="Easeway API")
 
@@ -13,6 +13,7 @@ allow_headers=["*"],
 )
 
 app.include_router(commutes.router)
+app.include_router(places.router)
 
 @app.get("/health")
 def health_check():

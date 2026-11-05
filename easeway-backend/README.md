@@ -64,7 +64,9 @@ The app also reads `.env`; extra Compose-only settings are ignored.
 
 The Google Maps placeholder is sufficient to start the backend and use commute
 storage. To use the Maps service, set a real `GOOGLE_MAPS_API_KEY` with the Google
-Routes API enabled. Never commit `.env`.
+Routes API enabled. The location search endpoints also require **Places API
+(New)** enabled for that key's Google Cloud project, with billing configured.
+Keep the key server-side and restrict it to the required APIs. Never commit `.env`.
 
 5. Start PostgreSQL and create the tables
 
@@ -106,6 +108,33 @@ currently supplied by the caller; authentication is not yet implemented.
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+### Location autocomplete and verification
+
+The backend exposes two Google Places endpoints:
+
+- `GET /places/autocomplete?query=BCIT&session_token=<uuid>` returns a list of
+  `{ "place_id": "...", "description": "..." }` suggestions. Queries must contain
+  at least two non-whitespace characters and be at most 200 characters long.
+- `GET /places/details?place_id=<id>&session_token=<uuid>` resolves a selected
+  suggestion to `{ "place_id": "...", "address": "...", "location":
+  { "latitude": 0.0, "longitude": 0.0 } }`. A location is only returned if Google
+  supplies an address and valid coordinates for the requested place ID.
+
+Generate a UUID for each search session, reuse it for that session's autocomplete
+requests and selected place's details request, then start a new session. Debounce
+autocomplete requests in the eventual client and display Google Maps attribution
+alongside suggestions, per Google's Places API policies.
+
+Invalid request parameters return HTTP 422. Unresolvable locations, upstream
+failures, configuration errors, and malformed Google responses return HTTP 502
+with a descriptive `detail`; they never return a verified-looking fallback.
+Tests mock Google and require neither a live API key nor a database.
+
+The frontend is not connected to these endpoints yet. Existing `POST /commutes`
+behavior is unchanged: it does not yet enforce Google Places verification.
+Before exposing this billable proxy publicly, add authentication and request
+rate limits (neither is currently implemented).
 
 ### Managing the local database
 
