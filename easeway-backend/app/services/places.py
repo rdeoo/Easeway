@@ -1,30 +1,13 @@
 from urllib.parse import quote
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import ValidationError
 
 from app.core.config import settings
 from app.services.maps import MapsError
+from app.schemas.places import PlaceSuggestion, VerifiedPlace
 
 PLACES_URL = "https://places.googleapis.com/v1/places"
-
-
-class PlaceSuggestion(BaseModel):
-    place_id: str = Field(min_length=1)
-    description: str = Field(min_length=1)
-
-
-class Coordinates(BaseModel):
-    model_config = ConfigDict(allow_inf_nan=False)
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
-
-
-class VerifiedPlace(BaseModel):
-    place_id: str = Field(min_length=1)
-    address: str = Field(min_length=1)
-    location: Coordinates
-
 
 async def _request(method: str, url: str, fields: str, **kwargs) -> dict:
     headers = {

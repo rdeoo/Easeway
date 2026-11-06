@@ -29,6 +29,8 @@ async def get_estimated_duration(
     destination: str,
     mode: str = "drive",
     departure_time: datetime | None = None,
+    *,
+    traffic_aware: bool = True,
 ) -> dict[str, int]:
     """Return travel and no-traffic seconds, rounded up, plus distance in meters."""
     if mode not in TRAVEL_MODES:
@@ -42,7 +44,7 @@ async def get_estimated_duration(
         "travelMode": TRAVEL_MODES[mode],
     }
     if mode == "drive":
-        body["routingPreference"] = "TRAFFIC_AWARE"
+        body["routingPreference"] = ("TRAFFIC_AWARE" if traffic_aware else "TRAFFIC_UNAWARE")
     if departure_time is not None:
         if departure_time.utcoffset() is None:
             raise MapsError("Departure time must include a timezone.")
