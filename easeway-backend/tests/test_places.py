@@ -9,7 +9,12 @@ from fastapi import FastAPI
 with (
     patch.dict(
         os.environ,
-        {"GOOGLE_MAPS_API_KEY": "test-key", "DATABASE_URL": "sqlite://"},
+        {
+            "GOOGLE_MAPS_API_KEY": "test-key",
+            "SUPABASE_DB_URL": "sqlite://",
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_PUBLISHABLE_KEY": "test-publishable-key",
+        },
     ),
     patch("pydantic_settings.DotEnvSettingsSource.__call__", return_value={}),
 ):

@@ -16,6 +16,48 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+### Backend and sign-in
+
+Copy `.env.example` to `.env.local` and set `EXPO_PUBLIC_API_URL` to the FastAPI
+server, plus your Supabase project's API URL and **publishable** key. These
+values ship with the app: never add the database password, secret/service-role
+key, or Google Maps key. Restart Expo after changing environment variables.
+On a physical device, use your computer's reachable LAN address for the API URL,
+not `127.0.0.1`.
+
+Sign-in and registration use Supabase Auth. If email confirmation is enabled,
+confirm the email before signing in. The SDK persists sessions and refreshes
+tokens; backend commute requests include the signed-in user's bearer token.
+
+### Commutes and departure estimates
+
+Search and select a Google Places suggestion for both locations. The backend
+verifies each selection's address and coordinates before Save is enabled.
+Editing a selected address invalidates the selection. Saving calls
+`POST /commutes` once; the backend gets one `TRAFFIC_UNAWARE` route estimate,
+saves `estimated_duration_seconds` with the commute in Supabase Postgres and
+returns the saved record. Failures are displayed without inventing an estimate.
+Loading/listing commutes reuses the saved duration, with no Google Routes call.
+
+Departure time = arrival time - ceil(duration seconds / 60) - arrival buffer.
+It is a baseline recommendation, not a live-traffic prediction. Old records
+without a saved estimate display "Estimate unavailable".
+
+The two built-in examples remain local UI data (not database rows).
+Their Google Places IDs, verified addresses/coordinates and hardcoded driving
+estimates are in `src/constants/default-commutes.ts`: Lonsdale Quay to BCIT Burnaby
+(1183 seconds), and Lonsdale Quay to SFU Burnaby (1803 seconds), looked up on
+2026-11-06. Deleting an example lasts until the provider reloads; newly created
+commutes and their deletions persist in the database.
+
+### Validation
+
+```sh
+npm test             # Node 22.18+; departure math and scheduling
+npx tsc --noEmit
+npm run lint
+```
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)

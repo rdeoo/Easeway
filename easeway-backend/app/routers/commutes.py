@@ -1,5 +1,7 @@
 import logging
 from uuid import UUID
+
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -9,9 +11,33 @@ from app.core.database import get_db
 from app.core.auth import get_current_user_id
 from app.models.commute import Commute
 from app.schemas.commutes import CommuteCreate, CommuteRead
+from app.services.maps import MapsError, get_estimated_duration
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/commutes", tags=["commutes"])
+
+# Commute travel modes use "bike"; the Maps service expects "bicycle".
+MAPS_TRAVEL_MODES = {"drive": "drive", "transit": "transit", "walk": "walk", "bike": "bicycle"}
+
+
+def estimate_duration_seconds(origin: str, destination: str, travel_mode: str) -> int:
+    """Fetch a TRAFFIC_UNAWARE travel estimate once, from a sync (threadpool) endpoint."""
+    try:
+        estimate = anyio.from_thread.run(
+            lambda: get_estimated_duration(
+                origin=origin,
+                destination=destination,
+                mode=MAPS_TRAVEL_MODES[travel_mode],
+                traffic_aware=False,
+            )
+        )
+    except MapsError as exc:
+        logger.warning("Commute travel estimate failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not estimate travel time for this commute. {exc}",
+        ) from exc
+    return estimate["duration_seconds"]
 
 
 @router.post("", response_model=CommuteRead, status_code=status.HTTP_201_CREATED)
@@ -20,8 +46,15 @@ def create_commute(
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
+    estimated_duration_seconds = estimate_duration_seconds(
+        payload.origin_address, payload.destination_address, payload.travel_mode
+    )
     try:
-        commute = Commute(**payload.model_dump(), user_id=user_id)
+        commute = Commute(
+            **payload.model_dump(),
+            user_id=user_id,
+            estimated_duration_seconds=estimated_duration_seconds,
+        )
         db.add(commute)
         db.commit()
         db.refresh(commute)
@@ -54,12 +87,14 @@ def list_commutes(
 
 @router.get("/{commute_id}", response_model=CommuteRead)
 def get_commute(
-        commute_id: int, db: Session = Depends(get_db)
+    commute_id: int,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
 ):
     try:
         commute = (
             db.query(Commute)
-            .filter(Commute.id == commute_id)
+            .filter(Commute.id == commute_id, Commute.user_id == user_id)
             .first()
         )
 
@@ -79,8 +114,8 @@ def get_commute(
 @router.patch("/{commute_id}", response_model=CommuteRead)
 def update_commute(
     commute_id: int,
-    user_id: UUID,
     payload: CommuteCreate,
+    user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
     commute = (
@@ -100,6 +135,16 @@ def update_commute(
             status_code=400, detail="Origin and destination must be different."
         )
 
+    travel_mode = changes.get("travel_mode", commute.travel_mode)
+    if (
+        origin != commute.origin_address
+        or destination != commute.destination_address
+        or travel_mode != commute.travel_mode
+    ):
+        commute.estimated_duration_seconds = estimate_duration_seconds(  # type: ignore
+            origin, destination, travel_mode
+        )
+
     for key, value in changes.items():
         setattr(commute, key, value)
 
@@ -117,7 +162,11 @@ def update_commute(
 
 
 @router.delete("/{commute_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_commute(commute_id: int, user_id: UUID, db: Session = Depends(get_db)):
+def delete_commute(
+    commute_id: int,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
     commute = (
         db.query(Commute)
         .filter(Commute.id == commute_id, Commute.user_id == user_id)
