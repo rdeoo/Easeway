@@ -5,10 +5,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { Brand, Field, PrimaryButton } from './ui';
 import { C, F } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
 
 type Props = { screenType: 'login' | 'register' };
 
@@ -24,6 +24,33 @@ export default function AuthScreen({ screenType }: Props) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const { session, loading, error: sessionError, signIn, signUp } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const submit = async () => {
+    if (busy) return;
+    if (!email.trim() || !password || (isRegister && !name.trim())) {
+      setMessage('Enter your email, password and, when registering, your name.');
+      return;
+    }
+    setBusy(true);
+    setMessage('');
+    try {
+      if (isRegister) {
+        const signedIn = await signUp(name.trim(), email.trim(), password);
+        if (!signedIn) setMessage('Check your email to confirm your account, then sign in.');
+      } else {
+        await signIn(email.trim(), password);
+      }
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : 'Could not authenticate. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!loading && session) return <Redirect href="/commutes" />;
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -78,10 +105,15 @@ export default function AuthScreen({ screenType }: Props) {
                 placeholder="At least 8 characters" secureTextEntry
                 autoCapitalize="none"
               />
-              {/* UI PREVIEW ONLY: this button does not authenticate a real user. */}
+              {(message || sessionError) && (
+                <Text accessibilityRole="alert" style={styles.description}>
+                  {message || sessionError}
+                </Text>
+              )}
               <PrimaryButton
-                label={isRegister ? 'Create account' : 'Sign in'}
-                onPress={() => router.replace('/commutes')}
+                label={busy ? 'Please wait...' : isRegister ? 'Create account' : 'Sign in'}
+                disabled={busy || loading}
+                onPress={submit}
               />
             </View>
              

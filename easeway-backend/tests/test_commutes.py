@@ -1,0 +1,178 @@
+import os
+import unittest
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
+
+with (
+    patch.dict(
+        os.environ,
+        {
+            "GOOGLE_MAPS_API_KEY": "test-key",
+            "SUPABASE_DB_URL": "sqlite://",
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_PUBLISHABLE_KEY": "test-publishable-key",
+        },
+    ),
+    patch("pydantic_settings.DotEnvSettingsSource.__call__", return_value={}),
+):
+    from app.core.auth import get_current_user_id
+    from app.core.database import get_db
+    from app.routers.commutes import router
+    from app.models.commute import Commute
+    from app.services.maps import MapsError
+
+USER_ID = UUID("00000000-0000-4000-8000-000000000001")
+PAYLOAD = {
+    "name": "Work",
+    "origin_address": "145 Chadwick Ct #220, North Vancouver, BC V7M 3K2, Canada",
+    "destination_address": "3700 Willingdon Ave, Burnaby, BC V5G 3L1, Canada",
+    "arrival_time": "08:30:00",
+    "days_of_week": [1, 2, 3, 4, 5],
+    "arrival_buffer_minutes": 10,
+    "travel_mode": "drive",
+}
+
+
+class CreateCommuteTests(unittest.TestCase):
+    def setUp(self):
+        self.db = MagicMock()
+
+        def refresh(commute):
+            commute.id = 1
+            commute.is_active = True
+            commute.created_at = datetime.now(timezone.utc)
+
+        self.db.refresh.side_effect = refresh
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[get_db] = lambda: self.db
+        app.dependency_overrides[get_current_user_id] = lambda: USER_ID
+        self.app = app
+        self.client = TestClient(app)
+
+    def post(self, estimate, payload=PAYLOAD):
+        with patch("app.routers.commutes.get_estimated_duration", estimate):
+            return self.client.post("/commutes", json=payload)
+
+    def test_saves_one_traffic_unaware_estimate(self):
+        estimate = AsyncMock(
+            return_value={
+                "duration_seconds": 1183,
+                "static_duration_seconds": 1183,
+                "distance_meters": 13153,
+            }
+        )
+        response = self.post(estimate)
+
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["estimated_duration_seconds"], 1183)
+        estimate.assert_awaited_once_with(
+            origin=PAYLOAD["origin_address"],
+            destination=PAYLOAD["destination_address"],
+            mode="drive",
+            traffic_aware=False,
+        )
+        saved = self.db.add.call_args.args[0]
+        self.assertEqual(saved.estimated_duration_seconds, 1183)
+        self.assertEqual(saved.user_id, USER_ID)
+
+    def test_bike_mode_maps_to_bicycle(self):
+        estimate = AsyncMock(
+            return_value={"duration_seconds": 60, "static_duration_seconds": 60, "distance_meters": 1}
+        )
+        response = self.post(estimate, {**PAYLOAD, "travel_mode": "bike"})
+
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(estimate.await_args.kwargs["mode"], "bicycle")
+
+    def test_estimate_failure_does_not_save(self):
+        estimate = AsyncMock(side_effect=MapsError("No route found between these locations."))
+        response = self.post(estimate)
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("No route found", response.json()["detail"])
+        self.db.add.assert_not_called()
+        self.db.commit.assert_not_called()
+
+    def test_invalid_payload_does_not_request_estimate(self):
+        estimate = AsyncMock()
+        response = self.post(
+            estimate, {**PAYLOAD, "destination_address": PAYLOAD["origin_address"]}
+        )
+
+        self.assertEqual(response.status_code, 422)
+        estimate.assert_not_awaited()
+
+    def test_empty_days_do_not_request_estimate(self):
+        estimate = AsyncMock()
+        response = self.post(estimate, {**PAYLOAD, "days_of_week": []})
+        self.assertEqual(response.status_code, 422)
+        estimate.assert_not_awaited()
+
+    def test_database_failure_rolls_back(self):
+        estimate = AsyncMock(return_value={"duration_seconds": 1183})
+        self.db.commit.side_effect = SQLAlchemyError("Database unavailable")
+        response = self.post(estimate)
+        self.assertEqual(response.status_code, 502)
+        self.db.rollback.assert_called_once()
+
+    def test_unauthenticated_create_does_not_request_estimate(self):
+        del self.app.dependency_overrides[get_current_user_id]
+        estimate = AsyncMock()
+        response = self.post(estimate)
+        self.assertEqual(response.status_code, 401)
+        estimate.assert_not_awaited()
+
+    def test_listing_does_not_request_estimate(self):
+        self.db.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
+        with patch("app.routers.commutes.get_estimated_duration", new_callable=AsyncMock) as estimate:
+            response = self.client.get("/commutes")
+        self.assertEqual(response.status_code, 200)
+        estimate.assert_not_awaited()
+
+    def existing_commute(self):
+        from app.schemas.commutes import CommuteCreate
+
+        commute = Commute(**CommuteCreate(**PAYLOAD).model_dump(), user_id=USER_ID)
+        commute.estimated_duration_seconds = 1183
+        self.db.query.return_value.filter.return_value.first.return_value = commute
+        return commute
+
+    def test_schedule_update_reuses_saved_estimate(self):
+        commute = self.existing_commute()
+        with patch("app.routers.commutes.get_estimated_duration", new_callable=AsyncMock) as estimate:
+            response = self.client.patch("/commutes/1", json={**PAYLOAD, "arrival_time": "09:00"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(commute.estimated_duration_seconds, 1183)
+        estimate.assert_not_awaited()
+
+    def test_route_update_refreshes_estimate_once(self):
+        self.existing_commute()
+        with patch(
+            "app.routers.commutes.get_estimated_duration",
+            new_callable=AsyncMock,
+            return_value={"duration_seconds": 1803},
+        ) as estimate:
+            response = self.client.patch(
+                "/commutes/1",
+                json={**PAYLOAD, "destination_address": "8888 University Dr W, Burnaby, BC"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["estimated_duration_seconds"], 1803)
+        estimate.assert_awaited_once()
+        self.assertFalse(estimate.await_args.kwargs["traffic_aware"])
+
+    def test_delete_uses_authenticated_user_without_query_id(self):
+        self.existing_commute()
+        response = self.client.delete("/commutes/1")
+        self.assertEqual(response.status_code, 204)
+        self.db.delete.assert_called_once()
+
+
+if __name__ == "__main__":
+    unittest.main()

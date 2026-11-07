@@ -1,14 +1,16 @@
-import type { ComponentProps } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState, type ComponentProps } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { Brand, PrimaryButton } from '../../components/ui';
+import { Redirect, router } from 'expo-router';
+import { Brand } from '../../components/ui';
 import { C, F } from '../../constants/theme';
 import {
   useCommutes, departureMinutes, formatDays, formatTime,
   type Commute, toMinutes,
 } from '../../context/CommuteContext';
+import { useAuth } from '../../context/AuthContext';
+import { departureToday } from '../../utils/commute-time';
 
 type Icon = ComponentProps<typeof Ionicons>['name'];
 const modeIcons: Record<Commute['travelMode'], Icon> = {
@@ -17,22 +19,52 @@ const modeIcons: Record<Commute['travelMode'], Icon> = {
 };
 
 export default function CommutesScreen() {
-  const { commutes, deleteCommute } = useCommutes();
+  const { commutes, loading, error: loadError, retry, deleteCommute } = useCommutes();
+  const { session, loading: authLoading, signOut } = useAuth();
+  const [now, setNow] = useState(() => new Date());
+  const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  // UI-only deterministic preview. Only highlight the NEXT upcoming trip today.
-  const now = new Date();
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const today = ((now.getDay() + 6) % 7) + 1; // Monday=1
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const next = commutes
-    .filter(c => c.days.includes(today) && departureMinutes(c) >= currentMinutes)
-    .sort((a, b) => departureMinutes(a) - departureMinutes(b))[0];
+    .flatMap(commute => {
+      const departure = departureToday(commute, today, currentMinutes);
+      return departure !== null
+        ? [{ id: commute.id, departure }] : [];
+    })
+    .sort((a, b) => a.departure - b.departure)[0];
 
-  const confirmDelete = (commute: Commute) => {
-    Alert.alert('Delete commute?', `Remove ${commute.name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => deleteCommute(commute.id) },
-    ]);
+  const confirmDelete = async (id: string) => {
+    setBusy(true);
+    setError('');
+    try {
+      await deleteCommute(id);
+      setDeletingId(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not delete commute.');
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const logOut = async () => {
+    setError('');
+    try {
+      await signOut();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not sign out.');
+    }
+  };
+
+  if (authLoading) return null;
+  if (!session) return <Redirect href="/login" />;
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -41,25 +73,35 @@ export default function CommutesScreen() {
           <Brand />
 
         </View>
-        <Pressable onPress={() => router.replace('/login')}>
+        <Pressable onPress={logOut}>
           <Text style={styles.signOut}>Sign out</Text>
         </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.eyebrow}>YOUR ROUTINE</Text>
+        {loading && <Text style={styles.empty}>Loading saved commutes...</Text>}
+        {(error || loadError) && (
+          <View>
+            <Text accessibilityRole="alert" style={styles.empty}>{error || loadError}</Text>
+            {loadError && <Pressable onPress={retry}><Text style={styles.signOut}>Retry</Text></Pressable>}
+          </View>
+        )}
         <View style={styles.introRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>All commutes</Text>
             <Text style={styles.description}>Keep the trips you make most often in one place.</Text>
           </View>
-          <Pressable style={styles.addSquare} onPress={() => router.push('/commutes/add')}>
+          <Pressable accessibilityLabel="Add commute" accessibilityRole="button"
+            style={styles.addSquare} onPress={() => router.push('/commutes/add')}>
             <Ionicons name="add" size={22} color={C.greenText} />
           </Pressable>
         </View>
 
         <View style={styles.list}>
-          {commutes.map(commute => (
+          {commutes.map(commute => {
+            const departure = departureMinutes(commute);
+            return (
             <View style={styles.commuteCard} key={commute.id}>
               <View style={styles.cardHeader}>
                 <View style={styles.iconSquare}>
@@ -67,29 +109,45 @@ export default function CommutesScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.commuteName}>{commute.name}</Text>
+                  <Text style={styles.destination}>From {commute.origin}</Text>
                   <Text style={styles.destination}>{commute.destination}</Text>
                 </View>
                 <Pressable
                   hitSlop={10}
-                  onPress={() => confirmDelete(commute)}
+                  disabled={busy}
+                  onPress={() => setDeletingId(commute.id)}
                   accessibilityLabel={`Delete ${commute.name}`}
                 >
                   <Ionicons name="trash-outline" size={17} color={C.muted} />
                 </Pressable>
               </View>
 
-              {next?.id === commute.id && (
+              {deletingId === commute.id && (
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaText}>Delete this commute?</Text>
+                  <Pressable disabled={busy} onPress={() => confirmDelete(commute.id)}>
+                    <Text style={styles.signOut}>{busy ? 'Deleting...' : 'Delete'}</Text>
+                  </Pressable>
+                  <Pressable disabled={busy} onPress={() => setDeletingId(null)}>
+                    <Text style={styles.metaText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              )}
+              {departure !== null ? (
                 <View style={styles.departureBox}>
                   <View>
                     <Text style={styles.leaveLabel}>LEAVE AT</Text>
-                    <Text style={styles.leaveTime}>{formatTime(departureMinutes(commute))}</Text>
+                    <Text style={styles.leaveTime}>{formatTime(departure)}</Text>
+                    {departure < 0 && <Text style={styles.metaText}>
+                      {Math.ceil(-departure / 1440)} day(s) before arrival
+                    </Text>}
                   </View>
-                  <View style={styles.statusPill}>
+                  {next?.id === commute.id && <View style={styles.statusPill}>
                     <View style={styles.statusDot} />
                     <Text style={styles.statusText}>Upcoming</Text>
-                  </View>
+                  </View>}
                 </View>
-              )}
+              ) : <Text style={styles.empty}>No saved travel estimate for this commute.</Text>}
 
               <View style={styles.metaRow}>
                 <View style={styles.meta}>
@@ -102,11 +160,14 @@ export default function CommutesScreen() {
                 </View>
                 <View style={styles.meta}>
                   <Ionicons name="car-outline" size={14} color={C.muted} />
-                  <Text style={styles.metaText}>{commute.durationMinutes} min</Text>
+                  <Text style={styles.metaText}>
+                    {commute.estimatedDurationSeconds === null ? 'Estimate unavailable'
+                      : `${Math.ceil(commute.estimatedDurationSeconds / 60)} min`}
+                  </Text>
                 </View>
               </View>
             </View>
-          ))}
+          ); })}
         </View>
 
         {commutes.length === 0 ? (
@@ -116,7 +177,10 @@ export default function CommutesScreen() {
         ) : null}
 
         
-        <Text style={styles.previewNote}>UI preview • departure times use sample durations</Text>
+        <Text style={styles.previewNote}>
+          Google Maps estimates without live traffic. Departure includes your arrival buffer.
+          Work and Evening class are local examples with verified locations.
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );

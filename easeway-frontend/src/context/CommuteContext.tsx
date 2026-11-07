@@ -1,51 +1,67 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
-
-// Temporary UI data. Replace this provider with FastAPI when integrating.
-export type TravelMode = 'driving' | 'transit' | 'bicycling' | 'walking';
-
-export type Commute = {
-  id: string;
-  name: string;
-  origin: string;
-  destination: string;
-  days: number[];  // Monday = 1 ... Sunday = 7
-  arrivalTime: string; // '08:30' local time
-  bufferMinutes: number;
-  durationMinutes: number; // deterministic demo estimate
-  travelMode: TravelMode;
-};
-
-const initial: Commute[] = [
-  {
-    id: 'work', name: 'Work', origin: 'Home', destination: 'BCIT Burnaby',
-    days: [1, 2, 3, 4, 5], arrivalTime: '08:30', bufferMinutes: 10,
-    durationMinutes: 45, travelMode: 'driving',
-  },
-  {
-    id: 'class', name: 'Evening class', origin: 'Home',
-    destination: 'SFU Burnaby Campus', days: [2], arrivalTime: '18:00',
-    bufferMinutes: 10, durationMinutes: 40, travelMode: 'driving',
-  },
-];
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useAuth } from './AuthContext';
+import { defaultCommutes } from '../constants/default-commutes';
+import { createCommute, listCommutes, removeCommute, type Commute, type NewCommute } from '../services/commutes';
+export type { Commute, TravelMode } from '../services/commutes';
+export { toMinutes, formatTime, departureMinutes } from '../utils/commute-time';
 
 type CommuteStore = {
   commutes: Commute[];
-  addCommute: (commute: Omit<Commute, 'id'>) => void;
-  deleteCommute: (id: string) => void;
+  loading: boolean;
+  error: string | null;
+  retry: () => void;
+  addCommute: (commute: NewCommute) => Promise<void>;
+  deleteCommute: (id: string) => Promise<void>;
 };
 
 const Context = createContext<CommuteStore | null>(null);
 
 export function CommuteProvider({ children }: { children: ReactNode }) {
-  const [commutes, setCommutes] = useState<Commute[]>(initial);
-  const addCommute = (commute: Omit<Commute, 'id'>) => {
-    setCommutes(current => [...current, { ...commute, id: String(Date.now()) }]);
+  const { session } = useAuth();
+  const userId = session?.user.id;
+  return <UserCommuteProvider key={userId ?? 'signed-out'} userId={userId}>
+    {children}
+  </UserCommuteProvider>;
+}
+
+function UserCommuteProvider({ children, userId }: { children: ReactNode; userId?: string }) {
+  const [commutes, setCommutes] = useState<Commute[]>(defaultCommutes);
+  const [loading, setLoading] = useState(Boolean(userId));
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    if (!userId) return;
+    const controller = new AbortController();
+    listCommutes(controller.signal).then(saved => {
+      if (!controller.signal.aborted) setCommutes([...defaultCommutes, ...saved]);
+    }).catch((cause: unknown) => {
+      if (!controller.signal.aborted) {
+        setError(cause instanceof Error ? cause.message : 'Could not load commutes.');
+      }
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [userId, attempt]);
+
+  const addCommute = async (commute: NewCommute) => {
+    const saved = await createCommute(commute);
+    setCommutes(current => [...current, saved]);
   };
-  const deleteCommute = (id: string) => {
+  const deleteCommute = async (id: string) => {
+    if (!defaultCommutes.some(commute => commute.id === id)) await removeCommute(id);
     setCommutes(current => current.filter(commute => commute.id !== id));
   };
   return (
-    <Context.Provider value={{ commutes, addCommute, deleteCommute }}>
+    <Context.Provider value={{
+      commutes, loading, error, retry: () => {
+        setLoading(true);
+        setError(null);
+        setAttempt(current => current + 1);
+      },
+      addCommute, deleteCommute,
+    }}>
       {children}
     </Context.Provider>
   );
@@ -55,22 +71,6 @@ export function useCommutes() {
   const value = useContext(Context);
   if (!value) throw new Error('useCommutes must be inside CommuteProvider');
   return value;
-}
-
-export function toMinutes(hhmm: string) {
-  const [hours, minutes] = hhmm.split(':').map(Number);
-  return hours * 60 + minutes;
-}
-
-export function formatTime(minutes: number) {
-  const time = ((minutes % 1440) + 1440) % 1440;
-  const h = Math.floor(time / 60);
-  const m = time % 60;
-  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
-}
-
-export function departureMinutes(commute: Commute) {
-  return toMinutes(commute.arrivalTime) - commute.durationMinutes - commute.bufferMinutes;
 }
 
 export function formatDays(days: number[]) {
