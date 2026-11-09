@@ -37,7 +37,7 @@ class CommuteCreate(BaseModel):
     origin_address: Address
     destination_address: Address
     arrival_time: time
-    days_of_week: list[int] = []  # 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    days_of_week: list[int] = Field(min_length=1)  # 0 = Sunday, ..., 6 = Saturday
     arrival_buffer_minutes: int = Field(default=0, ge=0, le=120)
     is_active: bool = Field(default=True)
     travel_mode: TravelMode = Field(default="drive")
@@ -45,7 +45,7 @@ class CommuteCreate(BaseModel):
     @field_validator("days_of_week")
     @classmethod
     def validate_days_of_week(cls, days):
-        return None if not days else clean_days_of_week(days)
+        return clean_days_of_week(days)
 
     @field_validator("arrival_time")
     @classmethod
@@ -119,5 +119,6 @@ class CommuteRead(BaseModel):
     arrival_buffer_minutes: int | None
     is_active: bool
     travel_mode: TravelMode
+    estimated_duration_seconds: int | None = None
     created_at: datetime
     updated_at: datetime | None
