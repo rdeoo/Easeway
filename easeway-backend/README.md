@@ -139,10 +139,19 @@ The frontend debounces location searches, verifies the selected places and
 disables Save until both selections are valid. Editing either input invalidates
 that selection. `POST /commutes` accepts their canonical addresses; it validates
 the payload and computes one route estimate, rather than performing a second
-Places details request. There is no separate frontend `/maps/estimate` call.
+Places details request. There is no separate frontend `/maps/estimate` call
+during creation.
 Commute endpoints and `/maps/estimate` require Supabase authentication.
 Before exposing the billable Places proxy publicly, add authentication and
 request rate limits to the Places endpoints.
+
+### Commute screen: live traffic
+
+`POST /maps/estimate` with `"traffic_aware": true` returns Google's
+traffic-aware driving duration. The frontend commute screen only calls it
+automatically from `min(2 × estimated_duration_seconds, 1 hour)` before the
+recommended departure until departure, refreshing every 5 minutes. A temporary
+developer button on the commute screen can call it at any time.
 
 ### Setup Test User For Backend Testing
 
