@@ -1,22 +1,17 @@
-import { useEffect, useState, type ComponentProps } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, router } from 'expo-router';
 import { Brand } from '../../components/ui';
 import { C, F } from '../../constants/theme';
+import { modeIcons } from '../../constants/travel-modes';
 import {
   useCommutes, departureMinutes, formatDays, formatTime,
-  type Commute, toMinutes,
+  toMinutes,
 } from '../../context/CommuteContext';
 import { useAuth } from '../../context/AuthContext';
 import { departureToday } from '../../utils/commute-time';
-
-type Icon = ComponentProps<typeof Ionicons>['name'];
-const modeIcons: Record<Commute['travelMode'], Icon> = {
-  driving: 'car-outline', transit: 'train-outline',
-  bicycling: 'bicycle-outline', walking: 'walk-outline',
-};
 
 export default function CommutesScreen() {
   const { commutes, loading, error: loadError, retry, deleteCommute } = useCommutes();
@@ -102,7 +97,13 @@ export default function CommutesScreen() {
           {commutes.map(commute => {
             const departure = departureMinutes(commute);
             return (
-            <View style={styles.commuteCard} key={commute.id}>
+            <Pressable
+              style={({ pressed }) => [styles.commuteCard, pressed && { opacity: 0.85 }]}
+              key={commute.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${commute.name} route`}
+              onPress={() => router.push({ pathname: '/commutes/[id]', params: { id: commute.id } })}
+            >
               <View style={styles.cardHeader}>
                 <View style={styles.iconSquare}>
                   <Ionicons name={modeIcons[commute.travelMode]} size={21} color={C.blueLight} />
@@ -120,6 +121,7 @@ export default function CommutesScreen() {
                 >
                   <Ionicons name="trash-outline" size={17} color={C.muted} />
                 </Pressable>
+                <Ionicons name="chevron-forward" size={17} color={C.muted} />
               </View>
 
               {deletingId === commute.id && (
@@ -166,7 +168,7 @@ export default function CommutesScreen() {
                   </Text>
                 </View>
               </View>
-            </View>
+            </Pressable>
           ); })}
         </View>
 
@@ -179,6 +181,7 @@ export default function CommutesScreen() {
         
         <Text style={styles.previewNote}>
           Google Maps estimates without live traffic. Departure includes your arrival buffer.
+          Open a commute to see its route and live traffic before departure.
           Work and Evening class are local examples with verified locations.
         </Text>
       </ScrollView>

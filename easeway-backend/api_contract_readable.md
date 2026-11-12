@@ -153,3 +153,36 @@ Returns a Commute with the specified `id`.
 ```json
 { "detail":"Commute not found" }
 ```
+
+## POST /maps/estimate
+
+Returns a Google Routes estimate for an address pair. Requires
+`Authorization: Bearer <access token>`. The commute screen uses
+`"traffic_aware": true` for live driving estimates, only from
+`min(2 × estimated_duration_seconds, 1 hour)` before the recommended departure.
+
+- **Data Parameters**
+
+```json
+{
+  "origin": string,
+  "destination": string,
+  "mode": "drive" | "transit" | "walk" | "bicycle",
+  "traffic_aware": bool
+}
+```
+
+- **Successful Response** ✅
+	- **Code**: `200`
+	- **Content**:
+
+```json
+{
+  "duration_seconds": int,
+  "static_duration_seconds": int,
+  "distance_meters": int
+}
+```
+
+- **Error Response**
+	- **Code**: `502` when Google cannot produce an estimate.
