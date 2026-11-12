@@ -134,6 +134,8 @@ class CreateCommuteTests(unittest.TestCase):
             response = self.client.get("/commutes")
         self.assertEqual(response.status_code, 200)
         estimate.assert_not_awaited()
+        conditions = self.db.query.return_value.filter.call_args.args
+        self.assertTrue(any(condition.compare(Commute.user_id == USER_ID) for condition in conditions))
 
     def existing_commute(self):
         from app.schemas.commutes import CommuteCreate
@@ -172,6 +174,99 @@ class CreateCommuteTests(unittest.TestCase):
         response = self.client.delete("/commutes/1")
         self.assertEqual(response.status_code, 204)
         self.db.delete.assert_called_once()
+
+    def test_partial_schedule_update_preserves_other_fields_and_estimate(self):
+        commute = self.existing_commute()
+        with patch("app.routers.commutes.get_estimated_duration", new_callable=AsyncMock) as estimate:
+            response = self.client.patch("/commutes/1", json={"arrival_time": "09:00", "arrival_buffer_minutes": 0})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["arrival_time"], "09:00:00")
+        self.assertEqual(commute.arrival_buffer_minutes, 0)
+        self.assertEqual(commute.name, PAYLOAD["name"])
+        self.assertEqual(commute.estimated_duration_seconds, 1183)
+        estimate.assert_not_awaited()
+
+    def test_partial_travel_mode_update_maps_bike_and_refreshes_estimate(self):
+        self.existing_commute()
+        with patch("app.routers.commutes.get_estimated_duration", new_callable=AsyncMock,
+                   return_value={"duration_seconds": 2400}) as estimate:
+            response = self.client.patch("/commutes/1", json={"travel_mode": "bike"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["estimated_duration_seconds"], 2400)
+        estimate.assert_awaited_once_with(origin=PAYLOAD["origin_address"],
+                                         destination=PAYLOAD["destination_address"],
+                                         mode="bicycle", traffic_aware=False)
+
+    def test_invalid_partial_updates_do_not_save_or_estimate(self):
+        self.existing_commute()
+        payloads = [{}, {"name": "Changed", "arrival_time": None}, {"travel_mode": None},
+                    {"user_id": str(USER_ID)}, {"days_of_week": []}, {"days_of_week": [7]},
+                    {"arrival_buffer_minutes": 121}, {"travel_mode": "flying"}]
+        with patch("app.routers.commutes.get_estimated_duration", new_callable=AsyncMock) as estimate:
+            for payload in payloads:
+                with self.subTest(payload=payload):
+                    self.assertEqual(self.client.patch("/commutes/1", json=payload).status_code, 422)
+        estimate.assert_not_awaited()
+        self.db.commit.assert_not_called()
+
+    def test_partial_address_update_cannot_match_stored_opposite_address(self):
+        self.existing_commute()
+        with patch("app.routers.commutes.get_estimated_duration", new_callable=AsyncMock) as estimate:
+            response = self.client.patch("/commutes/1", json={"origin_address": PAYLOAD["destination_address"]})
+        self.assertEqual(response.status_code, 400)
+        self.db.commit.assert_not_called()
+        estimate.assert_not_awaited()
+
+    def test_update_estimate_failure_preserves_commute(self):
+        commute = self.existing_commute()
+        with patch("app.routers.commutes.get_estimated_duration", new_callable=AsyncMock,
+                   side_effect=MapsError("No route found")):
+            response = self.client.patch("/commutes/1", json={"destination_address": "New destination"})
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(commute.destination_address, PAYLOAD["destination_address"])
+        self.assertEqual(commute.estimated_duration_seconds, 1183)
+        self.db.commit.assert_not_called()
+
+    def test_update_database_failure_returns_error_and_rolls_back(self):
+        self.existing_commute()
+        self.db.commit.side_effect = SQLAlchemyError("Database unavailable")
+        response = self.client.patch("/commutes/1", json={"name": "Changed"})
+        self.assertEqual(response.status_code, 502)
+        self.db.rollback.assert_called_once()
+
+    def test_single_read_returns_saved_record_without_google_call(self):
+        commute = self.existing_commute()
+        self.db.refresh(commute)
+        with patch("app.routers.commutes.get_estimated_duration", new_callable=AsyncMock) as estimate:
+            response = self.client.get("/commutes/1")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["id"], 1)
+        estimate.assert_not_awaited()
+
+    def test_single_read_and_update_are_user_scoped(self):
+        # Simulate a row belonging to another user: only an unscoped query would find it.
+        other = self.existing_commute()
+        other.user_id = UUID("00000000-0000-4000-8000-000000000002")
+
+        def scoped_query(*conditions):
+            owner_filter = any(condition.compare(Commute.user_id == USER_ID) for condition in conditions)
+            id_filter = any(condition.compare(Commute.id == 1) for condition in conditions)
+            self.assertTrue(owner_filter)
+            self.assertTrue(id_filter)
+            result = MagicMock()
+            result.first.return_value = None if owner_filter else other
+            return result
+
+        self.db.query.return_value.filter.side_effect = scoped_query
+        self.assertEqual(self.client.get("/commutes/1").status_code, 404)
+        self.assertEqual(self.client.patch("/commutes/1", json={"name": "Changed"}).status_code, 404)
+        self.db.commit.assert_not_called()
+
+    def test_signed_out_single_read_and_update_are_rejected(self):
+        del self.app.dependency_overrides[get_current_user_id]
+        self.assertEqual(self.client.get("/commutes/1").status_code, 401)
+        self.assertEqual(self.client.patch("/commutes/1", json={"name": "Changed"}).status_code, 401)
+        self.db.query.assert_not_called()
 
 
 if __name__ == "__main__":

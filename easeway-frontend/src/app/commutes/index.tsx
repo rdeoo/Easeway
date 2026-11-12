@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, router } from 'expo-router';
-import { Brand } from '../../components/ui';
+import { Brand, ConfirmationDialog, MessageBanner } from '../../components/ui';
 import { C, F } from '../../constants/theme';
 import { modeIcons } from '../../constants/travel-modes';
 import {
@@ -14,12 +14,14 @@ import { useAuth } from '../../context/AuthContext';
 import { departureToday } from '../../utils/commute-time';
 
 export default function CommutesScreen() {
-  const { commutes, loading, error: loadError, retry, deleteCommute } = useCommutes();
+  const { commutes, loading, error: loadError, retry, deleteCommute, feedback, setFeedback } = useCommutes();
   const { session, loading: authLoading, signOut } = useAuth();
   const [now, setNow] = useState(() => new Date());
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const deletingRef = useRef(false);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30_000);
@@ -37,15 +39,18 @@ export default function CommutesScreen() {
     .sort((a, b) => a.departure - b.departure)[0];
 
   const confirmDelete = async (id: string) => {
+    if (deletingRef.current) return;
+    deletingRef.current = true;
     setBusy(true);
-    setError('');
+    setDeleteError('');
     try {
       await deleteCommute(id);
       setDeletingId(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not delete commute.');
+      setDeleteError(cause instanceof Error ? cause.message : 'Could not delete commute.');
     } finally {
       setBusy(false);
+      deletingRef.current = false;
     }
   };
 
@@ -74,14 +79,17 @@ export default function CommutesScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.eyebrow}>YOUR ROUTINE</Text>
-        {loading && <Text style={styles.empty}>Loading saved commutes...</Text>}
+        {(error || loadError || feedback) && <View style={{ gap: 10, marginBottom: 20 }}>
         {(error || loadError) && (
           <View>
-            <Text accessibilityRole="alert" style={styles.empty}>{error || loadError}</Text>
+            <MessageBanner message={error || loadError} />
             {loadError && <Pressable onPress={retry}><Text style={styles.signOut}>Retry</Text></Pressable>}
           </View>
         )}
+        <MessageBanner message={feedback?.text} tone={feedback?.tone} onDismiss={() => setFeedback(null)} />
+        </View>}
+        <Text style={styles.eyebrow}>YOUR ROUTINE</Text>
+        {loading && <Text style={styles.empty}>Loading saved commutes...</Text>}
         <View style={styles.introRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>All commutes</Text>
@@ -116,7 +124,12 @@ export default function CommutesScreen() {
                 <Pressable
                   hitSlop={10}
                   disabled={busy}
-                  onPress={() => setDeletingId(commute.id)}
+                  onPress={event => {
+                    event.stopPropagation();
+                    setDeleteError('');
+                    setFeedback(null);
+                    setDeletingId(commute.id);
+                  }}
                   accessibilityLabel={`Delete ${commute.name}`}
                 >
                   <Ionicons name="trash-outline" size={17} color={C.muted} />
@@ -124,17 +137,6 @@ export default function CommutesScreen() {
                 <Ionicons name="chevron-forward" size={17} color={C.muted} />
               </View>
 
-              {deletingId === commute.id && (
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaText}>Delete this commute?</Text>
-                  <Pressable disabled={busy} onPress={() => confirmDelete(commute.id)}>
-                    <Text style={styles.signOut}>{busy ? 'Deleting...' : 'Delete'}</Text>
-                  </Pressable>
-                  <Pressable disabled={busy} onPress={() => setDeletingId(null)}>
-                    <Text style={styles.metaText}>Cancel</Text>
-                  </Pressable>
-                </View>
-              )}
               {departure !== null ? (
                 <View style={styles.departureBox}>
                   <View>
@@ -172,19 +174,23 @@ export default function CommutesScreen() {
           ); })}
         </View>
 
-        {commutes.length === 0 ? (
+        {!loading && !loadError && (commutes.length === 0 ? (
           <Text style={styles.empty}>No commutes saved yet. Add your first regular trip.</Text>
         ) : !next ? (
           <Text style={styles.empty}>No upcoming departures remaining today.</Text>
-        ) : null}
+        ) : null)}
 
         
         <Text style={styles.previewNote}>
           Google Maps estimates without live traffic. Departure includes your arrival buffer.
           Open a commute to see its route and live traffic before departure.
-          Work and Evening class are local examples with verified locations.
         </Text>
       </ScrollView>
+      <ConfirmationDialog visible={deletingId !== null} title="Delete commute?"
+        description={`Delete “${commutes.find(commute => commute.id === deletingId)?.name ?? 'this commute'}”? This cannot be undone.`}
+        error={deleteError} busy={busy}
+        onConfirm={() => { if (deletingId) void confirmDelete(deletingId); }}
+        onCancel={() => { setDeletingId(null); setDeleteError(''); }} />
     </SafeAreaView>
   );
 }

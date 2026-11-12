@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from app.core.database import get_db
 from app.core.auth import get_current_user_id
 from app.models.commute import Commute
-from app.schemas.commutes import CommuteCreate, CommuteRead
+from app.schemas.commutes import CommuteCreate, CommuteRead, CommuteUpdate
 from app.services.maps import MapsError, get_estimated_duration
 
 logger = logging.getLogger(__name__)
@@ -114,15 +114,19 @@ def get_commute(
 @router.patch("/{commute_id}", response_model=CommuteRead)
 def update_commute(
     commute_id: int,
-    payload: CommuteCreate,
+    payload: CommuteUpdate,
     user_id: UUID = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    commute = (
-        db.query(Commute)
-        .filter(Commute.id == commute_id, Commute.user_id == user_id)
-        .first()
-    )
+    try:
+        commute = (
+            db.query(Commute)
+            .filter(Commute.id == commute_id, Commute.user_id == user_id)
+            .first()
+        )
+    except SQLAlchemyError:
+        logger.exception("Error finding commute to update")
+        raise HTTPException(status_code=502, detail="Could not retrieve commute from database.")
     if commute is None:
         raise HTTPException(status_code=404, detail="Commute not found.")
 

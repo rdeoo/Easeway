@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
-import { defaultCommutes } from '../constants/default-commutes';
-import { createCommute, listCommutes, removeCommute, type Commute, type NewCommute } from '../services/commutes';
+import type { Feedback } from '../components/ui';
+import { createCommute, getCommute, listCommutes, removeCommute, updateCommute, type Commute, type NewCommute } from '../services/commutes';
 export type { Commute, TravelMode } from '../services/commutes';
 export { toMinutes, formatTime, departureMinutes } from '../utils/commute-time';
 
@@ -10,7 +10,11 @@ type CommuteStore = {
   loading: boolean;
   error: string | null;
   retry: () => void;
+  feedback: Feedback | null;
+  setFeedback: (feedback: Feedback | null) => void;
   addCommute: (commute: NewCommute) => Promise<void>;
+  loadCommute: (id: string, signal?: AbortSignal) => Promise<Commute>;
+  editCommute: (id: string, changes: Partial<NewCommute>) => Promise<void>;
   deleteCommute: (id: string) => Promise<void>;
 };
 
@@ -25,7 +29,8 @@ export function CommuteProvider({ children }: { children: ReactNode }) {
 }
 
 function UserCommuteProvider({ children, userId }: { children: ReactNode; userId?: string }) {
-  const [commutes, setCommutes] = useState<Commute[]>(defaultCommutes);
+  const [commutes, setCommutes] = useState<Commute[]>([]);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [loading, setLoading] = useState(Boolean(userId));
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -34,7 +39,7 @@ function UserCommuteProvider({ children, userId }: { children: ReactNode; userId
     if (!userId) return;
     const controller = new AbortController();
     listCommutes(controller.signal).then(saved => {
-      if (!controller.signal.aborted) setCommutes([...defaultCommutes, ...saved]);
+      if (!controller.signal.aborted) setCommutes(saved);
     }).catch((cause: unknown) => {
       if (!controller.signal.aborted) {
         setError(cause instanceof Error ? cause.message : 'Could not load commutes.');
@@ -46,21 +51,37 @@ function UserCommuteProvider({ children, userId }: { children: ReactNode; userId
   }, [userId, attempt]);
 
   const addCommute = async (commute: NewCommute) => {
+    setFeedback(null);
     const saved = await createCommute(commute);
     setCommutes(current => [...current, saved]);
+    setFeedback({ text: 'Commute created successfully.', tone: 'success' });
+  };
+  const loadCommute = useCallback(async (id: string, signal?: AbortSignal) => {
+    const saved = await getCommute(id, signal);
+    if (!signal?.aborted) setCommutes(current => current.some(commute => commute.id === id)
+      ? current.map(commute => commute.id === id ? saved : commute) : [...current, saved]);
+    return saved;
+  }, []);
+  const editCommute = async (id: string, changes: Partial<NewCommute>) => {
+    setFeedback(null);
+    const saved = await updateCommute(id, changes);
+    setCommutes(current => current.map(commute => commute.id === id ? saved : commute));
+    setFeedback({ text: 'Commute updated successfully.', tone: 'success' });
   };
   const deleteCommute = async (id: string) => {
-    if (!defaultCommutes.some(commute => commute.id === id)) await removeCommute(id);
+    setFeedback(null);
+    await removeCommute(id);
     setCommutes(current => current.filter(commute => commute.id !== id));
+    setFeedback({ text: 'Commute deleted successfully.', tone: 'success' });
   };
   return (
     <Context.Provider value={{
-      commutes, loading, error, retry: () => {
+      commutes, loading, error, feedback, setFeedback, retry: () => {
         setLoading(true);
         setError(null);
         setAttempt(current => current + 1);
       },
-      addCommute, deleteCommute,
+      addCommute, loadCommute, editCommute, deleteCommute,
     }}>
       {children}
     </Context.Provider>

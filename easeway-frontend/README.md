@@ -43,12 +43,16 @@ Departure time = arrival time - ceil(duration seconds / 60) - arrival buffer.
 It is a baseline recommendation, not a live-traffic prediction. Old records
 without a saved estimate display "Estimate unavailable".
 
-The two built-in examples remain local UI data (not database rows).
-Their Google Places IDs, verified addresses/coordinates and hardcoded driving
-estimates are in `src/constants/default-commutes.ts`: Lonsdale Quay to BCIT Burnaby
-(1183 seconds), and Lonsdale Quay to SFU Burnaby (1803 seconds), looked up on
-2026-11-06. Deleting an example lasts until the provider reloads; newly created
-commutes and their deletions persist in the database.
+The app shows only records returned by authenticated commute endpoints. No local
+examples are injected. `src/constants/default-commutes.ts` remains a test fixture.
+Lists use `/commutes?is_active=true`; details use `/commutes/{id}`. The backend
+scopes these queries to the verified user, and changing users resets local state.
+
+Registration requires a name, an email in a valid-looking format and a password
+of at least 8 characters that is not all spaces. Login requires a valid-looking
+email and a nonempty password; Supabase enforces the actual account policy.
+Shared banners display local validation and returned authentication/API errors,
+plus successful commute saves/deletions. Deletion requires a popup confirmation.
 
 ### Validation
 

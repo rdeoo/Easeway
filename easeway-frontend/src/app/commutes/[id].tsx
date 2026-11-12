@@ -1,14 +1,15 @@
-import { useEffect, useState, type ComponentProps } from 'react';
+import { useCallback, useEffect, useState, type ComponentProps } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Redirect, router, useLocalSearchParams } from 'expo-router';
+import { Redirect, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { C, F } from '../../constants/theme';
 import { modeIcons, modeLabels } from '../../constants/travel-modes';
 import {
   formatDays, formatTime, toMinutes, useCommutes, type Commute,
 } from '../../context/CommuteContext';
 import { useAuth } from '../../context/AuthContext';
+import { ConfirmationDialog, MessageBanner } from '../../components/ui';
 import { getTrafficEstimate, type TrafficEstimate } from '../../services/maps';
 import {
   departureBefore, isInTrafficWindow, nextTrip, trafficWindowStart,
@@ -54,30 +55,76 @@ function message(cause: unknown, fallback: string) {
 
 export default function CommuteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { commutes, loading } = useCommutes();
   const { session, loading: authLoading } = useAuth();
-  const commute = commutes.find(item => item.id === id);
 
   if (authLoading) return null;
   if (!session) return <Redirect href="/login" />;
+  return <SavedCommuteScreen key={`${session.user.id}-${id}`} id={id} />;
+}
+
+function SavedCommuteScreen({ id }: { id: string }) {
+  const { loadCommute, feedback, setFeedback } = useCommutes();
+  const [saved, setSaved] = useState<Commute | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const [confirmEdit, setConfirmEdit] = useState(false);
+  useFocusEffect(useCallback(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    loadCommute(id, controller.signal).then(commute => {
+      if (!controller.signal.aborted) setSaved(commute);
+    }).catch((cause: unknown) => {
+      if (!controller.signal.aborted) setError(message(cause, 'Could not load commute.'));
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+    // The retry counter deliberately restarts the focused request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, loadCommute, attempt]));
+  const commute = saved;
 
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.topbar}>
         <Pressable
           accessibilityRole="button" accessibilityLabel="Back to commutes" hitSlop={10}
-          onPress={() => router.canGoBack() ? router.back() : router.replace('/commutes')}
+          onPress={() => router.dismissTo('/commutes')}
           style={styles.back}
         >
           <Ionicons name="chevron-back" size={20} color={C.text} />
           <Text style={styles.backText}>Commutes</Text>
         </Pressable>
+        {commute && !loading && !error && <Pressable
+          accessibilityRole="button" accessibilityLabel="Edit commute"
+          onPress={() => setConfirmEdit(true)}
+          style={styles.editButton}
+        >
+          <Text style={styles.backText}>Edit</Text>
+        </Pressable>}
       </View>
-      {commute ? <CommuteDetails key={commute.id} commute={commute} /> : (
-        <Text style={[styles.note, styles.content]}>
-          {loading ? 'Loading commute...' : 'This commute could not be found.'}
-        </Text>
-      )}
+      {feedback && <View style={styles.feedback}>
+        <MessageBanner compact message={feedback.text} tone={feedback.tone} onDismiss={() => setFeedback(null)} />
+      </View>}
+      {loading ? <Text style={[styles.note, styles.content]}>Loading commute...</Text>
+        : error ? <View style={styles.content}>
+          <MessageBanner message={error} />
+          <Pressable accessibilityRole="button" onPress={() => setAttempt(current => current + 1)}>
+            <Text style={styles.backText}>Retry</Text>
+          </Pressable>
+        </View> : commute ? <>
+          <CommuteDetails key={JSON.stringify(commute)} commute={commute} />
+        </> : <Text style={[styles.note, styles.content]}>This commute could not be found.</Text>}
+      <ConfirmationDialog visible={confirmEdit} title="Edit commute?"
+        description={`Edit “${commute?.name ?? 'this commute'}”? Your changes will only be saved when you select Save changes.`}
+        confirmLabel="Continue editing" destructive={false} busy={false}
+        onCancel={() => setConfirmEdit(false)}
+        onConfirm={() => {
+          setConfirmEdit(false);
+          router.push({ pathname: '/commutes/add', params: { id } });
+        }} />
     </SafeAreaView>
   );
 }
@@ -194,7 +241,7 @@ function CommuteDetails({ commute }: { commute: Commute }) {
           {durationSeconds === null ? 'Unavailable' : duration(durationSeconds)}
         </Text>
         <Text style={styles.sub}>{trafficStatus}</Text>
-        {trafficError !== '' && <Text accessibilityRole="alert" style={styles.error}>{trafficError}</Text>}
+        <MessageBanner message={trafficError} />
       </View>
 
       <View style={styles.route}>
@@ -293,6 +340,12 @@ const styles = StyleSheet.create({
   },
   back: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   backText: { color: C.text, fontFamily: F.medium, fontSize: 14 },
+  feedback: { marginHorizontal: 18, marginTop: 12, marginBottom: 4 },
+  editButton: {
+    marginLeft: 'auto', minHeight: 44, paddingHorizontal: 18,
+    justifyContent: 'center', borderWidth: 1,
+    borderRadius: 10, backgroundColor: 'rgba(99,140,255,0.12)',
+  },
   content: { paddingHorizontal: 18, paddingTop: 24, paddingBottom: 36 },
   eyebrow: { color: C.green, fontFamily: F.bold, fontSize: 10, letterSpacing: 1 },
   title: { fontFamily: F.displayMedium, fontSize: 23, color: C.text, letterSpacing: -0.7, marginTop: 6, marginBottom: 2 },

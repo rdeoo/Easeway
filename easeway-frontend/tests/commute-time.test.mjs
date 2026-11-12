@@ -16,6 +16,36 @@ test('default class commute rounds 1803 seconds up, departing at 17:19', () => {
   assert.equal(formatTime(departureMinutes(defaultCommutes[1])), '5:19 PM');
 });
 
+test('08:30 arrival minus 50-minute ETA and 10-minute buffer departs at 07:30', () => {
+  const commute = {
+    ...defaultCommutes[0], arrivalTime: '08:30',
+    estimatedDurationSeconds: 50 * 60, bufferMinutes: 10,
+  };
+  assert.equal(departureMinutes(commute), 450);
+  assert.equal(formatTime(departureMinutes(commute)), '7:30 AM');
+  assert.deepEqual(nextTrip(commute, monday(7)).departure, monday(7, 30));
+});
+
+test('large 120-minute buffer is fully subtracted from the departure recommendation', () => {
+  const commute = {
+    ...defaultCommutes[0], arrivalTime: '08:30',
+    estimatedDurationSeconds: 50 * 60, bufferMinutes: 120,
+  };
+  assert.equal(departureMinutes(commute), 340);
+  assert.equal(formatTime(departureMinutes(commute)), '5:40 AM');
+  assert.deepEqual(nextTrip(commute, monday(5)).departure, monday(5, 40));
+});
+
+test('zero buffer subtracts only the ETA: 08:30 minus 50 minutes departs at 07:40', () => {
+  const commute = {
+    ...defaultCommutes[0], arrivalTime: '08:30',
+    estimatedDurationSeconds: 50 * 60, bufferMinutes: 0,
+  };
+  assert.equal(departureMinutes(commute), 460);
+  assert.equal(formatTime(departureMinutes(commute)), '7:40 AM');
+  assert.deepEqual(nextTrip(commute, monday(7)).departure, monday(7, 40));
+});
+
 test('rounds partial minutes up but not exact minutes', () => {
   const commute = { ...defaultCommutes[0], bufferMinutes: 0 };
   assert.equal(departureMinutes({ ...commute, estimatedDurationSeconds: 60 }), 509);
@@ -39,6 +69,9 @@ test('departures crossing midnight are shown on the previous day, including Sund
   assert.equal(departureToday(commute, 7, 1380), 1420);
   assert.equal(departureToday(commute, 7, 1421), null);
   assert.equal(departureToday(commute, 1, 0), null);
+  const trip = nextTrip(commute, new Date(2026, 10, 8, 23, 0));
+  assert.deepEqual(trip.departure, new Date(2026, 10, 8, 23, 40));
+  assert.deepEqual(trip.arrival, new Date(2026, 10, 9, 0, 10));
 });
 
 test('upcoming selection excludes passed departures and non-scheduled days', () => {

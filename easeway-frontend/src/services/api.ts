@@ -13,7 +13,12 @@ export class ApiError extends Error {
     super(
       typeof details === 'string'
         ? details
-        : `API request failed (${status}).`,
+        : Array.isArray(details) && details.length > 0 && details.every(item => item && typeof item.msg === 'string')
+          ? details.map(item => {
+            const field = Array.isArray(item.loc) ? item.loc.slice(1).join('.') : '';
+            return field ? `${field}: ${item.msg}` : item.msg;
+          }).join(' ')
+          : `API request failed (${status}).`,
     );
     this.name = 'ApiError';
   }

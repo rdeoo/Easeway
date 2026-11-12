@@ -68,7 +68,7 @@ class CommuteUpdate(BaseModel):
     days_of_week: list[int] | None = None
     arrival_buffer_minutes: int | None = Field(default=None, ge=0, le=120)
     is_active: bool | None = None
-    # travel_mode: TravelMode | None = None
+    travel_mode: TravelMode | None = None
 
     @field_validator("days_of_week")
     @classmethod
@@ -89,17 +89,8 @@ class CommuteUpdate(BaseModel):
 
     @model_validator(mode="after")
     def at_least_one_field_and_no_nulls(self):
-        if not any(
-            field is not None
-            for field in [
-                self.name,
-                self.origin_address,
-                self.destination_address,
-                self.arrival_time,
-                self.days_of_week,
-                self.arrival_buffer_minutes,
-                self.is_active,
-            ]
+        if not self.model_fields_set or any(
+            getattr(self, field) is None for field in self.model_fields_set
         ):
             raise ValueError(
                 "At least one field must be provided and none of the fields can be null."

@@ -83,6 +83,31 @@ export async function createCommute(commute: NewCommute) {
   return fromApi(response);
 }
 
+export async function getCommute(id: string, signal?: AbortSignal) {
+  const response = await apiRequest<ApiCommute>(`/commutes/${encodeURIComponent(id)}`, {
+    accessToken: await accessToken(), signal,
+  });
+  if (!response) throw new Error('Could not load commute: empty response.');
+  return fromApi(response);
+}
+
+export async function updateCommute(id: string, changes: Partial<NewCommute>) {
+  const response = await apiRequest<ApiCommute>(`/commutes/${encodeURIComponent(id)}`, {
+    method: 'PATCH', accessToken: await accessToken(),
+    body: {
+      name: changes.name,
+      origin_address: changes.origin,
+      destination_address: changes.destination,
+      days_of_week: changes.days?.map(day => day === 7 ? 0 : day),
+      arrival_time: changes.arrivalTime,
+      arrival_buffer_minutes: changes.bufferMinutes,
+      travel_mode: changes.travelMode === undefined ? undefined : apiModes[changes.travelMode],
+    },
+  });
+  if (!response) throw new Error('Could not update commute: empty response.');
+  return fromApi(response);
+}
+
 export async function removeCommute(id: string) {
   await apiRequest(`/commutes/${encodeURIComponent(id)}`, {
     method: 'DELETE', accessToken: await accessToken(),

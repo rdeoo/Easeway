@@ -6,7 +6,7 @@ import { searchPlaces, verifyPlace, type PlaceSuggestion, type VerifiedPlace } f
 
 type Props = {
   label: string;
-  value: VerifiedPlace | null;
+  value: VerifiedPlace | { address: string } | null;
   onChange: (place: VerifiedPlace | null) => void;
   disabled?: boolean;
 };
@@ -84,7 +84,7 @@ export function PlaceField({ label, value, onChange, disabled }: Props) {
         autoCorrect={false}
       />
       {busy && <Text style={styles.hint}>Verifying location...</Text>}
-      {value && <Text style={styles.hint}>Verified location</Text>}
+      {value && <Text style={styles.hint}>{'place_id' in value ? 'Verified location' : 'Saved location'}</Text>}
       {error ? <Text accessibilityRole="alert" style={styles.hint}>{error}</Text> : null}
       {suggestions.map(suggestion => (
         <Pressable

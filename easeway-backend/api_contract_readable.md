@@ -154,6 +154,27 @@ Returns a Commute with the specified `id`.
 { "detail":"Commute not found" }
 ```
 
+## PATCH /commutes/{commute_id}
+
+Updates a commute owned by the authenticated user. Requires
+`Authorization: Bearer <Supabase access token>`. Returns `200` with the same
+record shape as `GET /commutes/{commute_id}`.
+
+Send at least one of `name`, `origin_address`, `destination_address`,
+`arrival_time`, `days_of_week`, `arrival_buffer_minutes`, `is_active`, or
+`travel_mode`. Omitted fields remain unchanged. Explicit nulls, unknown fields,
+empty payloads, and invalid field values return `422`. Weekdays use Sunday=0
+through Saturday=6; travel modes are `drive|transit|walk|bike`.
+
+Example: `{ "arrival_time": "09:00", "arrival_buffer_minutes": 0 }`.
+
+Changing origin, destination, or travel mode obtains one new traffic-unaware
+estimate before saving. Other changes reuse the stored baseline, including a
+nullable legacy estimate. Estimate or database failures return `502`; no
+successful save is reported. Missing/other-user records return `404`.
+Equal addresses supplied together return `422`; a single-address change that
+matches the stored opposite address returns `400`.
+
 ## POST /maps/estimate
 
 Returns a Google Routes estimate for an address pair. Requires
