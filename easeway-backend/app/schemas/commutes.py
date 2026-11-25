@@ -122,3 +122,13 @@ class CommuteRead(BaseModel):
     estimated_duration_seconds: int | None = None
     created_at: datetime
     updated_at: datetime | None
+
+
+class EstimateRead(BaseModel):
+    commute_id: int
+    arrival_at: datetime
+    leave_at: datetime
+    google_eta_minutes: int
+    predicted_minutes: int
+    source: Literal["model", "ratio", "google"]
+    buffer_minutes: int

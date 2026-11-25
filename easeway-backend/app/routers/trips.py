@@ -37,6 +37,7 @@ def create_trip(
         arrival_time=payload.arrival_time,
         actual_minutes=round(seconds / 60),
         api_eta_minutes=payload.api_eta_minutes,
+        predicted_minutes=payload.predicted_minutes,
         status="completed",
     )
 

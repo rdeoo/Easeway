@@ -10,14 +10,20 @@ from datetime import datetime, timezone
 from app.core.database import get_db
 from app.core.auth import get_current_user_id
 from app.models.commute import Commute
-from app.schemas.commutes import CommuteCreate, CommuteRead
+from app.schemas.commutes import CommuteCreate, CommuteRead, EstimateRead
 from app.services.maps import MapsError, get_estimated_duration
+from app.services.estimates import build_estimate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/commutes", tags=["commutes"])
 
 # Commute travel modes use "bike"; the Maps service expects "bicycle".
-MAPS_TRAVEL_MODES = {"drive": "drive", "transit": "transit", "walk": "walk", "bike": "bicycle"}
+MAPS_TRAVEL_MODES = {
+    "drive": "drive",
+    "transit": "transit",
+    "walk": "walk",
+    "bike": "bicycle",
+}
 
 
 def estimate_duration_seconds(origin: str, destination: str, travel_mode: str) -> int:
@@ -85,6 +91,7 @@ def list_commutes(
             status_code=502, detail="Could not retrieve commutes from database."
         )
 
+
 @router.get("/{commute_id}", response_model=CommuteRead)
 def get_commute(
     commute_id: int,
@@ -99,17 +106,15 @@ def get_commute(
         )
 
         if not commute:
-            raise HTTPException(
-                status_code=404,
-                detail="Commute not found"
-            )
+            raise HTTPException(status_code=404, detail="Commute not found")
 
         return commute
     except SQLAlchemyError:
         logger.exception("Error getting commute with id")
         raise HTTPException(
-                    status_code=502, detail="Could not retrieve commutes from database."
-                )
+            status_code=502, detail="Could not retrieve commutes from database."
+        )
+
 
 @router.patch("/{commute_id}", response_model=CommuteRead)
 def update_commute(
@@ -197,3 +202,27 @@ def delete_commute(
             status_code=502, detail="Could not delete commute from database."
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{commute_id}/estimate", response_model=EstimateRead)
+async def get_commute_estimate(
+    commute_id: int,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    commute = (
+        db.query(Commute)
+        .filter(Commute.id == commute_id, Commute.user_id == user_id)
+        .first()
+    )
+    if commute is None:
+        raise HTTPException(status_code=404, detail="Commute not found.")
+
+    try:
+        return await build_estimate(commute, db)
+    except MapsError as exc:
+        logger.warning("Estimate failed for commute %s: %s", commute_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not estimate this route. Check the addresses and try again.",
+        ) from exc
