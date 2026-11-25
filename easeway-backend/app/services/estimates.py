@@ -29,7 +29,8 @@ async def build_estimate(commute, db, now: datetime | None = None) -> dict:
     )
     google_eta_minutes = ceil(route["duration_seconds"] / 60)
 
-    prediction = predict_minutes(commute, google_eta_minutes, db)
+    depart_at = arrival_at - timedelta(minutes=google_eta_minutes + buffer_minutes)
+    prediction = predict_minutes(commute, google_eta_minutes, db, depart_at=depart_at)
     leave_at = compute_leave_at(arrival_at, prediction.minutes, buffer_minutes)
 
     return {
