@@ -3,7 +3,7 @@ from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Text, func
 from app.core.database import Base
 
 
-class CommuteTrips(Base):
+class CommuteTrip(Base):
     __tablename__ = "commute_trips"
 
     id = Column(BigInteger, primary_key=True)
