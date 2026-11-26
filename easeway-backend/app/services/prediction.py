@@ -8,17 +8,13 @@ from pathlib import Path
 from statistics import median
 
 from app.models.commute_trip import CommuteTrip
-from app.services.departure import APP_TZ
+from app.ml.dataset import FEATURE_COLUMNS, MIN_TRIPS, departure_features
 
 logger = logging.getLogger(__name__)
 
-MIN_TRIPS = 10  # a commute needs this many completed trips before we personalize
 MIN_FACTOR = 0.5  # never predict less than half of Google's time
 MAX_FACTOR = 2.0  # or more than double it
 MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "travel_time.joblib"
-
-# Must match the columns used when the model is trained (card 138)
-FEATURE_COLUMNS = ["day_of_week", "departure_hour", "api_eta_minutes"]
 
 
 @dataclass
@@ -66,15 +62,8 @@ def ratio_prediction(trips: list[tuple[int, int]], google_eta_minutes: int) -> f
 
 
 def model_prediction(model, depart_at: datetime, google_eta_minutes: int) -> float:
-    local = depart_at.astimezone(APP_TZ)
     row = pd.DataFrame(
-        [
-            {
-                "day_of_week": local.isoweekday() % 7,  # 0 = Sunday, like days_of_week
-                "departure_hour": local.hour,
-                "api_eta_minutes": google_eta_minutes,
-            }
-        ],
+        [{**departure_features(depart_at), "api_eta_minutes": google_eta_minutes}],
         columns=FEATURE_COLUMNS,
     )
     return float(model.predict(row)[0])
