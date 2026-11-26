@@ -1,14 +1,15 @@
-import { useState } from 'react';
+import { createElement, useState } from 'react';
 import {
   ImageBackground, KeyboardAvoidingView, Platform, Pressable,
   ScrollView, StyleSheet, Text, View, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { Brand, Field, PrimaryButton } from './ui';
+import { Redirect, router } from 'expo-router';
+import { Brand, Field, MessageBanner, PrimaryButton, type Feedback } from './ui';
+import { validateAuthInput } from '../utils/auth-validation';
 import { C, F } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
 
 type Props = { screenType: 'login' | 'register' };
 
@@ -24,82 +25,125 @@ export default function AuthScreen({ screenType }: Props) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const { session, loading, error: sessionError, signIn, signUp } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [messageTone, setMessageTone] = useState<Feedback['tone']>('error');
 
-  return (
-    <SafeAreaView style={styles.screen}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <ImageBackground
-            source={heroPhoto}
-            resizeMode="cover"
-            style={[styles.hero, { height: Math.min(310, Math.max(235, height * 0.34)) }]}
-          >
-            <LinearGradient
-              colors={['rgba(18,35,49,0.80)', 'rgba(16,28,40,0.74)', '#101720']}
-              locations={[0, 0.6, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-            
-            <Brand />
-          </ImageBackground>
+  const submit = async () => {
+    if (busy) return;
+    setMessageTone('error');
+    const validationError = validateAuthInput(screenType, name, email, password);
+    if (validationError) {
+      setMessage(validationError);
+      return;
+    }
+    setBusy(true);
+    setMessage('');
+    try {
+      if (isRegister) {
+        const signedIn = await signUp(name.trim(), email.trim(), password);
+        if (!signedIn) {
+          setMessageTone('info');
+          setMessage('Check your email to confirm your account, then sign in.');
+        }
+      } else {
+        await signIn(email.trim(), password);
+      }
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : 'Could not authenticate. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
-          <View style={styles.panel}>
-            <Text style={styles.eyebrow}>YOUR COMMUTE, SIMPLIFIED</Text>
-            <Text style={styles.heading}>
-              {isRegister ? 'Create your account' : 'Welcome back'}
-            </Text>
-            <Text style={styles.description}>
-              {isRegister
-                ? 'Create an account to save your first commute.'
-                : 'Sign in to manage your saved commutes.'}
-            </Text>
+  if (loading) return null;
+  if (session) return <Redirect href="/commutes" />;
 
-            <View style={styles.fields}>
-              {isRegister && (
-                <Field
-                  label="Name" value={name} onChangeText={setName}
-                  placeholder="Your name" autoCapitalize="words"
-                />
-              )}
-              <Field
-                label="Email" value={email} onChangeText={setEmail}
-                placeholder="you@example.com" keyboardType="email-address"
-                autoCapitalize="none"
-              />
-              <Field
-                label="Password" value={password} onChangeText={setPassword}
-                placeholder="At least 8 characters" secureTextEntry
-                autoCapitalize="none"
-              />
-              {/* UI PREVIEW ONLY: this button does not authenticate a real user. */}
-              <PrimaryButton
-                label={isRegister ? 'Create account' : 'Sign in'}
-                onPress={() => router.replace('/commutes')}
-              />
-            </View>
-             
-            <Pressable
-              onPress={() => router.replace(isRegister ? '/login' : '/register')}
-              accessibilityRole="link"
-              style={styles.switchButton}
-            >
-              <Text style={styles.switchText}>
-                {isRegister
-                  ? 'Already have an account? Sign in'
-                  : 'New to Easeway? Create an account'}
-              </Text>
-            </Pressable>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+  return createElement(
+    SafeAreaView,
+    { style: styles.screen },
+    createElement(
+      KeyboardAvoidingView,
+      { style: { flex: 1 }, behavior: Platform.OS === 'ios' ? 'padding' : undefined },
+      createElement(
+        ScrollView,
+        {
+          contentContainerStyle: styles.scrollContent,
+          keyboardShouldPersistTaps: 'handled',
+          showsVerticalScrollIndicator: false,
+        },
+        createElement(
+          ImageBackground,
+          {
+            source: heroPhoto,
+            resizeMode: 'cover',
+            style: [styles.hero, { height: Math.min(310, Math.max(235, height * 0.34)) }],
+          },
+          createElement(LinearGradient, {
+            colors: ['rgba(18,35,49,0.80)', 'rgba(16,28,40,0.74)', '#101720'],
+            locations: [0, 0.6, 1],
+            style: StyleSheet.absoluteFill,
+          }),
+          createElement(Brand),
+        ),
+        createElement(
+          View,
+          { style: styles.panel },
+          createElement(Text, { style: styles.eyebrow }, 'YOUR COMMUTE, SIMPLIFIED'),
+          createElement(Text, { style: styles.heading }, isRegister ? 'Create your account' : 'Welcome back'),
+          createElement(
+            Text,
+            { style: styles.description },
+            isRegister
+              ? 'Create an account to save your first commute.'
+              : 'Sign in to manage your saved commutes.',
+          ),
+          createElement(
+            View,
+            { style: styles.fields },
+            isRegister && createElement(Field, {
+              label: 'Name', value: name, onChangeText: text => { setName(text); setMessage(''); },
+              placeholder: 'Your name', autoCapitalize: 'words',
+            }),
+            createElement(Field, {
+              label: 'Email', value: email, onChangeText: text => { setEmail(text); setMessage(''); },
+              placeholder: 'you@example.com', keyboardType: 'email-address',
+              autoCapitalize: 'none',
+            }),
+            createElement(Field, {
+              label: 'Password', value: password, onChangeText: text => { setPassword(text); setMessage(''); },
+              placeholder: isRegister ? 'At least 8 characters' : 'Your password', secureTextEntry: true,
+              autoCapitalize: 'none',
+            }),
+            createElement(MessageBanner, {
+              message: message || sessionError,
+              tone: message ? messageTone : 'error',
+            }),
+            createElement(PrimaryButton, {
+              label: busy ? 'Please wait...' : isRegister ? 'Create account' : 'Sign in',
+              disabled: busy || loading,
+              onPress: submit,
+            }),
+          ),
+          createElement(
+            Pressable,
+            {
+              onPress: () => router.replace(isRegister ? '/login' : '/register'),
+              accessibilityRole: 'link',
+              style: styles.switchButton,
+            },
+            createElement(
+              Text,
+              { style: styles.switchText },
+              isRegister
+                ? 'Already have an account? Sign in'
+                : 'New to Easeway? Create an account',
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 }
 

@@ -1,6 +1,8 @@
 import { Redirect } from 'expo-router';
+import { useAuth } from '../context/AuthContext';
 
 export default function Index() {
-  // UI preview: later check the real auth session here.
-  return <Redirect href="/login" />;
+  const { session, loading } = useAuth();
+  if (loading) return null;
+  return <Redirect href={session ? '/commutes' : '/login'} />;
 }

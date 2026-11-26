@@ -37,7 +37,7 @@ class CommuteCreate(BaseModel):
     origin_address: Address
     destination_address: Address
     arrival_time: time
-    days_of_week: list[int] = []  # 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    days_of_week: list[int] = Field(min_length=1)  # 0 = Sunday, ..., 6 = Saturday
     arrival_buffer_minutes: int = Field(default=0, ge=0, le=120)
     is_active: bool = Field(default=True)
     travel_mode: TravelMode = Field(default="drive")
@@ -45,7 +45,7 @@ class CommuteCreate(BaseModel):
     @field_validator("days_of_week")
     @classmethod
     def validate_days_of_week(cls, days):
-        return None if not days else clean_days_of_week(days)
+        return clean_days_of_week(days)
 
     @field_validator("arrival_time")
     @classmethod
@@ -68,7 +68,7 @@ class CommuteUpdate(BaseModel):
     days_of_week: list[int] | None = None
     arrival_buffer_minutes: int | None = Field(default=None, ge=0, le=120)
     is_active: bool | None = None
-    # travel_mode: TravelMode | None = None
+    travel_mode: TravelMode | None = None
 
     @field_validator("days_of_week")
     @classmethod
@@ -89,17 +89,8 @@ class CommuteUpdate(BaseModel):
 
     @model_validator(mode="after")
     def at_least_one_field_and_no_nulls(self):
-        if not any(
-            field is not None
-            for field in [
-                self.name,
-                self.origin_address,
-                self.destination_address,
-                self.arrival_time,
-                self.days_of_week,
-                self.arrival_buffer_minutes,
-                self.is_active,
-            ]
+        if not self.model_fields_set or any(
+            getattr(self, field) is None for field in self.model_fields_set
         ):
             raise ValueError(
                 "At least one field must be provided and none of the fields can be null."
@@ -119,5 +110,6 @@ class CommuteRead(BaseModel):
     arrival_buffer_minutes: int | None
     is_active: bool
     travel_mode: TravelMode
+    estimated_duration_seconds: int | None = None
     created_at: datetime
     updated_at: datetime | None

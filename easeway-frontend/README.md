@@ -16,6 +16,52 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+### Backend and sign-in
+
+Copy `.env.example` to `.env.local` and set `EXPO_PUBLIC_API_URL` to the FastAPI
+server, plus your Supabase project's API URL and **publishable** key. These
+values ship with the app: never add the database password, secret/service-role
+key, or Google Maps key. Restart Expo after changing environment variables.
+On a physical device, use your computer's reachable LAN address for the API URL,
+not `127.0.0.1`.
+
+Sign-in and registration use Supabase Auth. If email confirmation is enabled,
+confirm the email before signing in. The SDK persists sessions and refreshes
+tokens; backend commute requests include the signed-in user's bearer token.
+
+### Commutes and departure estimates
+
+Search and select a Google Places suggestion for both locations. The backend
+verifies each selection's address and coordinates before Save is enabled.
+Editing a selected address invalidates the selection. Saving calls
+`POST /commutes` once; the backend gets one `TRAFFIC_UNAWARE` route estimate,
+saves `estimated_duration_seconds` with the commute in Supabase Postgres and
+returns the saved record. Failures are displayed without inventing an estimate.
+Loading/listing commutes reuses the saved duration, with no Google Routes call.
+
+Departure time = arrival time - ceil(duration seconds / 60) - arrival buffer.
+It is a baseline recommendation, not a live-traffic prediction. Old records
+without a saved estimate display "Estimate unavailable".
+
+The app shows only records returned by authenticated commute endpoints. No local
+examples are injected. `src/constants/default-commutes.ts` remains a test fixture.
+Lists use `/commutes?is_active=true`; details use `/commutes/{id}`. The backend
+scopes these queries to the verified user, and changing users resets local state.
+
+Registration requires a name, an email in a valid-looking format and a password
+of at least 8 characters that is not all spaces. Login requires a valid-looking
+email and a nonempty password; Supabase enforces the actual account policy.
+Shared banners display local validation and returned authentication/API errors,
+plus successful commute saves/deletions. Deletion requires a popup confirmation.
+
+### Validation
+
+```sh
+npm test             # Node 22.18+; departure math and scheduling
+npx tsc --noEmit
+npm run lint
+```
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)

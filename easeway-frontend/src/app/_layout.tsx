@@ -8,6 +8,7 @@ import {
   SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold,
 } from '@expo-google-fonts/space-grotesk';
 import { CommuteProvider } from '../context/CommuteContext';
+import { AuthProvider } from '../context/AuthContext';
 import { C } from '../constants/theme';
 
 export default function RootLayout() {
@@ -18,9 +19,11 @@ export default function RootLayout() {
   if (!loaded) return null;
 
   return (
-    <CommuteProvider>
-      <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }} />
-    </CommuteProvider>
+    <AuthProvider>
+      <CommuteProvider>
+        <StatusBar style="light" />
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }} />
+      </CommuteProvider>
+    </AuthProvider>
   );
 }

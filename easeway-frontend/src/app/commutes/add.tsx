@@ -1,20 +1,22 @@
-import { useState, type ComponentProps } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import 
 {
-  Alert, KeyboardAvoidingView, Platform, Pressable,
+  KeyboardAvoidingView, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { router } from 'expo-router';
-import { Card, Field, PrimaryButton, SectionHeading } from '../../components/ui';
+import { Redirect, router, useLocalSearchParams } from 'expo-router';
+import { Card, Field, MessageBanner, PrimaryButton, SectionHeading } from '../../components/ui';
 import { C, F } from '../../constants/theme';
-import { useCommutes, type TravelMode, formatTime } from '../../context/CommuteContext';
-
-type IconName = ComponentProps<typeof Ionicons>['name'];
+import { useCommutes, type Commute, type TravelMode, formatTime } from '../../context/CommuteContext';
+import type { NewCommute } from '../../services/commutes';
+import { useAuth } from '../../context/AuthContext';
+import { PlaceField } from '../../components/place-field';
+import type { VerifiedPlace } from '../../services/places';
 
 const weekdays = 
 [
@@ -27,29 +29,63 @@ const weekdays =
   { id: 7, label: 'S' },
 ];
 
-const modes: { key: TravelMode; label: string; icon: IconName }[] = 
-[
-  { key: 'driving', label: 'Drive', icon: 'car-outline' },
-  { key: 'transit', label: 'Transit', icon: 'train-outline' },
-  { key: 'bicycling', label: 'Bike', icon: 'bicycle-outline' },
-  { key: 'walking', label: 'Walk', icon: 'walk-outline' },
-];
-
 export default function AddCommuteScreen() 
 {
-  const { addCommute } = useCommutes();
-  const [name, setName] = useState('');
-  const [origin, setOrigin] = useState('Home');
-  const [destination, setDestination] = useState('BCIT Burnaby');
-  const [days, setDays] = useState([ 1 ]);
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { session, loading } = useAuth();
+  if (loading) return null;
+  if (!session) return <Redirect href="/login" />;
+  return id ? <EditCommuteLoader key={`${session.user.id}-${id}`} id={id} />
+    : <CommuteForm key={session.user.id} />;
+}
+
+function EditCommuteLoader({ id }: { id: string }) {
+  const { loadCommute } = useCommutes();
+  const [commute, setCommute] = useState<Commute | null>(null);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    loadCommute(id, controller.signal).then(saved => {
+      if (!controller.signal.aborted) setCommute(saved);
+    }).catch((cause: unknown) => {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not load commute.');
+    });
+    return () => controller.abort();
+  }, [id, loadCommute, attempt]);
+  if (commute) return <CommuteForm initial={commute} />;
+  return <SafeAreaView style={styles.screen}>
+    <MessageBanner message={error || 'Loading commute...'} tone={error ? 'error' : 'info'} />
+    {Boolean(error) && <PrimaryButton label="Retry" onPress={() => {
+      setError('');
+      setAttempt(current => current + 1);
+    }} />}
+    <PrimaryButton label="Back to commutes" onPress={() => router.replace('/commutes')} />
+  </SafeAreaView>;
+}
+
+function CommuteForm({ initial }: { initial?: Commute }) {
+  const { addCommute, editCommute, setFeedback, loading: commutesLoading } = useCommutes();
+  const { session, loading } = useAuth();
+  const [name, setName] = useState(initial?.name ?? '');
+  const [origin, setOrigin] = useState<VerifiedPlace | { address: string } | null>(initial ? { address: initial.origin } : null);
+  const [destination, setDestination] = useState<VerifiedPlace | { address: string } | null>(initial ? { address: initial.destination } : null);
+  const [swapVersion, setSwapVersion] = useState(0);
+  const [days, setDays] = useState(initial?.days ?? [ 1 ]);
   const [arrival, setArrival] = useState(() => {
     const value = new Date();
-    value.setHours(8, 30, 0, 0);
+    const [hours, minutes] = (initial?.arrivalTime ?? '08:30').split(':').map(Number);
+    value.setHours(hours, minutes, 0, 0);
     return value;
   });
   const [showPicker, setShowPicker] = useState(false);
-  const [buffer, setBuffer] = useState(10);
-  const [mode, setMode] = useState<TravelMode>('driving');
+  const [buffer, setBuffer] = useState(initial?.bufferMinutes ?? 10);
+  const mode: TravelMode = initial?.travelMode ?? 'driving';
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [error, setError] = useState('');
+  const [webArrival, setWebArrival] = useState(initial?.arrivalTime ?? '08:30');
+  useEffect(() => { setFeedback(null); }, [setFeedback]);
 
   const toggleDay = (id: number) => {
     setDays(current => current.includes(id)
@@ -57,32 +93,64 @@ export default function AddCommuteScreen()
       : [...current, id]);
   };
 
-  const save = () => {
-    if (!name.trim() || !origin.trim() || !destination.trim() || days.length === 0) {
-      Alert.alert('Missing details', 'Enter a name, both locations and at least one day.');
+  const save = async () => {
+    if (savingRef.current) return;
+    if (!name.trim() || !origin || !destination || days.length === 0) {
+      setError('Enter a name, select both verified locations and at least one day.');
       return;
     }
-    // Sample travel durations for UI testing only, NOT live Google Maps ETAs.
-    const sampleDurations: Record<TravelMode, number> = {
-      driving: 45, transit: 55, bicycling: 40, walking: 65,
-    };
-    addCommute({
-      name: name.trim(), origin: origin.trim(), destination: destination.trim(),
-      days: [...days].sort((a, b) => a - b),
-      arrivalTime: `${String(arrival.getHours()).padStart(2, '0')}:${String(arrival.getMinutes()).padStart(2, '0')}`,
-      bufferMinutes: buffer, travelMode: mode,
-      durationMinutes: sampleDurations[mode],
-    });
-    router.back();
+    if (name.trim().length > 100) {
+      setError('Use a commute name with at most 100 characters.');
+      return;
+    }
+    if (('place_id' in origin && 'place_id' in destination && origin.place_id === destination.place_id)
+      || origin.address.toLowerCase() === destination.address.toLowerCase()) {
+      setError('Starting and destination locations must be different.');
+      return;
+    }
+    if (Platform.OS === 'web' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(webArrival)) {
+      setError('Enter an arrival time in 24-hour HH:MM format.');
+      return;
+    }
+    savingRef.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      const values: NewCommute = {
+        name: name.trim(), origin: origin.address, destination: destination.address,
+        days: [...days].sort((a, b) => a - b),
+        arrivalTime: Platform.OS === 'web' ? webArrival
+          : `${String(arrival.getHours()).padStart(2, '0')}:${String(arrival.getMinutes()).padStart(2, '0')}`,
+        bufferMinutes: buffer, travelMode: mode,
+      };
+      if (initial) {
+        const changes = Object.fromEntries(Object.entries(values).filter(([key, value]) =>
+          JSON.stringify(value) !== JSON.stringify(initial[key as keyof NewCommute]))) as Partial<NewCommute>;
+        if (Object.keys(changes).length) await editCommute(initial.id, changes);
+        else setFeedback({ text: 'No changes to save.', tone: 'info' });
+        router.dismissTo({ pathname: '/commutes/[id]', params: { id: initial.id } });
+      } else {
+        await addCommute(values);
+        router.replace('/commutes');
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not save this commute.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
+
+  if (loading) return null;
+  if (!session) return <Redirect href="/login" />;
 
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.topbar}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
+        <Pressable onPress={() => router.replace('/commutes')} style={styles.backButton}>
           <Ionicons name="chevron-back" size={20} color={C.text} />
         </Pressable>
-        <Text style={styles.topbarTitle}>Add commute</Text>
+        <Text style={styles.topbarTitle}>{initial ? 'Edit commute' : 'Add commute'}</Text>
         <View style={{ width: 38 }} />
       </View>
       <KeyboardAvoidingView
@@ -94,7 +162,7 @@ export default function AddCommuteScreen()
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
-          <Text style={styles.pageTitle}>Plan a recurring trip</Text>
+          <Text style={styles.pageTitle}>{initial ? 'Update your recurring trip' : 'Plan a recurring trip'}</Text>
 
           <View style={styles.cardGap}>
             <Card>
@@ -110,27 +178,20 @@ export default function AddCommuteScreen()
                   <View style={styles.endDot} />
                 </View>
                 <View style={{ flex: 1, gap: 12 }}>
-                  <View>
-                    <Text style={styles.fieldLabel}>FROM</Text>
-                    <TextInput
-                      value={origin} onChangeText={setOrigin}
-                      placeholder="Starting address" placeholderTextColor={C.placeholder}
-                      style={styles.locationInput}
-                    />
-                  </View>
-                  <View>
-                    <Text style={styles.fieldLabel}>TO</Text>
-                    <TextInput
-                      value={destination} onChangeText={setDestination}
-                      placeholder="Destination address" placeholderTextColor={C.placeholder}
-                      style={styles.locationInput}
-                    />
-                  </View>
+                  <PlaceField key={`origin-${swapVersion}`} label="From"
+                    value={origin} onChange={setOrigin} disabled={saving} />
+                  <PlaceField key={`destination-${swapVersion}`} label="To"
+                    value={destination} onChange={setDestination} disabled={saving} />
                 </View>
                 <Pressable
                   accessibilityLabel="Swap origin and destination"
                   style={styles.swapButton}
-                  onPress={() => { setOrigin(destination); setDestination(origin); }}
+                  disabled={saving}
+                  onPress={() => {
+                    setOrigin(destination);
+                    setDestination(origin);
+                    setSwapVersion(current => current + 1);
+                  }}
                 >
                   <Ionicons name="swap-vertical" size={18} color={C.blueLight} />
                 </Pressable>
@@ -158,12 +219,16 @@ export default function AddCommuteScreen()
             <Card>
               <SectionHeading title="Arrive by" subtitle="Target arrival time"
                 icon="time-outline" color={C.violet} />
-              <Pressable onPress={() => setShowPicker(true)} style={styles.timeControl}>
+              {Platform.OS === 'web' ? (
+                <TextInput accessibilityLabel="Arrival time (HH:MM)"
+                  value={webArrival} onChangeText={setWebArrival}
+                  placeholder="08:30" style={styles.locationInput} />
+              ) : <Pressable onPress={() => setShowPicker(true)} style={styles.timeControl}>
                 <Text style={styles.bigTime}>
                   {formatTime(arrival.getHours() * 60 + arrival.getMinutes())}
                 </Text>
                 <Ionicons name="chevron-down" color={C.violet} size={17} />
-              </Pressable>
+              </Pressable>}
               {showPicker && (
                 <View>
                   <DateTimePicker
@@ -196,34 +261,21 @@ export default function AddCommuteScreen()
                   </Pressable>
                   <Text style={styles.bufferValue}>{buffer} min</Text>
                   <Pressable style={styles.stepButton}
-                    onPress={() => setBuffer(current => Math.min(60, current + 1))}>
+                    onPress={() => setBuffer(current => Math.min(initial ? 120 : 60, current + 1))}>
                     <Ionicons name="add" size={19} color={C.blueLight} />
                   </Pressable>
                 </View>
               </View>
             </Card>
 
-           {/** <Card>
-              <SectionHeading title="Travel mode" subtitle="How are you travelling?"
-                icon="car-outline" color={C.green} />
-              <View style={styles.modeRow}>
-                {modes.map(item => {
-                  const selected = mode === item.key;
-                  return (
-                    <Pressable key={item.key} onPress={() => setMode(item.key)}
-                      style={[styles.mode, selected && styles.modeSelected]}>
-                      <Ionicons name={item.icon} size={20} color={selected ? C.green : C.muted} />
-                      <Text style={[styles.modeText, selected && styles.modeTextSelected]}>
-                        {item.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </Card> */}
-
-            <PrimaryButton label="Save commute" icon="checkmark" onPress={save} />
-            <Text style={styles.previewNote}>Saved to temporary UI state • not the database yet</Text>
+            <MessageBanner message={error} />
+            <PrimaryButton label={saving ? 'Saving...' : initial ? 'Save changes' : 'Save commute'}
+              icon="checkmark" onPress={save}
+              disabled={saving || commutesLoading || !origin || !destination} />
+            <Text style={styles.previewNote}>
+              {initial ? 'Changing the route refreshes its saved estimate. Schedule and buffer changes reuse it.'
+                : 'One Google Maps estimate is saved with your commute. Live traffic is not included.'}
+            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
