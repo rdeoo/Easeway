@@ -8,7 +8,6 @@ class TripCreate(BaseModel):
     departure_time: AwareDatetime
     arrival_time: AwareDatetime
     api_eta_minutes: int | None = Field(default=None, ge=0, le=1440)
-    predicted_minutes: int | None = Field(default=None, ge=0, le=1440)
 
     @model_validator(mode="after")
     def check_times(self):

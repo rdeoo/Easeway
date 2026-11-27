@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user_id
 from app.core.database import get_db
 from app.models.commute import Commute
-from app.models.commute_trip import CommuteTrip
+from app.models.commute_trips import CommuteTrips
 from app.schemas.trips import TripCreate, TripRead
 
 logger = logging.getLogger(__name__)
@@ -31,13 +31,12 @@ def create_trip(
 
     seconds = (payload.arrival_time - payload.departure_time).total_seconds()
 
-    trip = CommuteTrip(
+    trip = CommuteTrips(
         commute_id=commute.id,
         departure_time=payload.departure_time,
         arrival_time=payload.arrival_time,
         actual_minutes=round(seconds / 60),
         api_eta_minutes=payload.api_eta_minutes,
-        predicted_minutes=payload.predicted_minutes,
         status="completed",
     )
 
